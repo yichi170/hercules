@@ -19,8 +19,20 @@
 -include $(WORKDIR)/user.mk
 
 ifndef SYSTEM
-	SYSTEM := $(shell uname -s | tr A-Z a-z)
-	ARCH = $(shell uname -m | tr A-Z a-z)
+	SYSTEM = Vista
+endif
+
+ifeq ($(SYSTEM), Vista)
+        CC      = mpicc
+        CXX     = mpicxx
+        LD      = mpicxx
+        CFLAGS  += -DBIGBEN
+        CFLAGS  += -g -I$$TACC_PROJ_INC
+        CC += -I$$TACC_GSL_INC
+        LDFLAGS += -L$$TACC_GSL_LIB -L$$TACC_PROJ_LIB
+        LDFLAGS += -lgsl -lgslcblas -lproj
+        CPPFLAGS += -D_USE_FILE_OFFSET64 -D_FILE_OFFSET_BITS=64 -D_USE_LARGEFILE64 -DPROJ
+        NVCC    = nvcc -arch=sm_90
 endif
 
 ifeq ($(SYSTEM), Stampede)
