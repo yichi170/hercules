@@ -27,7 +27,7 @@
 #define LINESIZE        512
 
 typedef enum {
-    NO = 0, YES
+  UNSET = -1, NO = 0, YES
 } noyesflag_t;
 
 /* -------------------------------------------------------------------------- */

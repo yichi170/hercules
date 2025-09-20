@@ -21,7 +21,9 @@
  * Generate an unstructured mesh and solve the linear system thereof
  * derived.
  */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -391,8 +393,15 @@ static struct Param_t
     .FourDOutFp = NULL,
     .theMonitorFileFp = NULL,
     .theMonitorFileName = NULL,
+    .thePlaneDirOut = "outputfiles/planes",
+    .theSourceOutputDir = "outputfiles/srctmp",
+    .theMeshDirMatlab = "outputfiles/For_Matlab",
+    .the3DVelModelDir = "inputfiles/materialfiles",
+    .theTopoDir = "inputfiles/topography",
     .theFreq_Vel = 0,
     .monitor_stats_rate = 50,
+    .theSofteningFactor = 0,
+    .theStepMeshingFactor = 0,
     .theSchedulePrintErrorCheckFlag = 0,
     .theSchedulePrintToStdout = 0,
     .theSchedulePrintToFile = 0,
@@ -400,24 +409,18 @@ static struct Param_t
     .theScheduleStatFilename = NULL,
     .theMeshStatFilename = NULL,
     .theTopoStatFilename = NULL,
-    .theSofteningFactor = 0,
-    .theStepMeshingFactor = 0,
-    .myNumberOfStations = 0,
-    .theUseCheckPoint = 0,
     .theTimingBarriersFlag = 0,
+    .myNumberOfStations = 0,
+    .theStationsDirOut = "outputfiles/stations",
+    .theUseCheckPoint = 0,
     .the4DOutSize = 0,
     .theMeshOutFlag = 0,
     .useProfile = NO,
-    .theNumberOfLayers = 0,
-    .theStationsDirOut = "outputfiles/stations",
-    .thePlaneDirOut = "outputfiles/planes",
-    .theSourceOutputDir = "outputfiles/srctmp",
-    .theMeshDirMatlab = "outputfiles/For_Matlab",
-    .the3DVelModelDir = "inputfiles/materialfiles",
-    .theTopoDir = "inputfiles/topography"};
+    .theNumberOfLayers = 0
+};
 
 /* These are all of the remaining global variables - this list should not grow */
-static struct Global_t
+static struct nnnnnnGlobal_t
 {
     int32_t myID;
     int32_t theGroupSize;
@@ -450,6 +453,9 @@ static struct Global_t
     cvmrecord_t *theCVMRecord;
     int theCVMRecordSize;
     int theCVMRecordCount;
+  gpu_spec_t gpu_spec;
+  gpu_kernel_t gpu_kernel[MAX_CUDA_KERNEL];
+  gpu_data_t gpuData;
 
 } Global = {
     .myID = -1,
@@ -473,6 +479,59 @@ static struct Global_t
     .theCVMRecordSize = sizeof(cvmrecord_t)};
 
 /* ------------------------------End of declarations------------------------------ */
+
+void getGPUHardware(int32_t myID, int device, gpu_spec_t *gpuSpecs)
+{
+    int i;
+    const int kb = 1024;
+    const int mb = kb * kb;
+
+    cudaDeviceProp props;
+    memset(&props, 0, sizeof(cudaDeviceProp));
+    if (cudaGetDeviceProperties(&props, device) != cudaSuccess) {
+      fprintf(stderr, "Failed to get GPU device properties\n");
+      MPI_Abort(MPI_COMM_WORLD, ERROR);
+      exit(1);
+    }
+
+    gpuSpecs->device = device;
+    gpuSpecs->max_threads = props.maxThreadsPerBlock;
+    for (i = 0; i < 3; i++) {
+      gpuSpecs->max_block_dim[i] = props.maxThreadsDim[i];
+      gpuSpecs->max_grid_dim[i] = props.maxGridSize[i];
+    }
+    gpuSpecs->regs_per_block = props.regsPerBlock;
+    gpuSpecs->shared_per_block = props.sharedMemPerBlock;
+    gpuSpecs->warp_size = props.warpSize;
+
+    /* TODO: Customize these parameters for compute capability */
+    gpuSpecs->warp_allocation_size = 4;
+    gpuSpecs->register_allocation_size = 256;
+
+    /*
+    if (myID == 0) {
+      cout << "GPU Device " << device << ": " << props.name 
+	   << ": " << props.major << "." << props.minor << endl;
+      cout << "  Global memory:   " << props.totalGlobalMem / mb 
+	   << "mb" << endl;
+      cout << "  Shared memory:   " << props.sharedMemPerBlock / kb 
+	   << "kb" << endl;
+      cout << "  Constant memory: " << props.totalConstMem / kb << "kb" << endl;
+      cout << "  Block registers: " << props.regsPerBlock << endl << endl;
+      
+      cout << "  Warp size:         " << props.warpSize << endl;
+      cout << "  Threads per block: " << props.maxThreadsPerBlock << endl;
+      cout << "  Max block dimensions: [ " << props.maxThreadsDim[0] 
+	   << ", " << props.maxThreadsDim[1]  << ", " 
+	   << props.maxThreadsDim[2] << " ]" << endl;
+      cout << "  Max grid dimensions:  [ " << props.maxGridSize[0] << ", " 
+	   << props.maxGridSize[1]  << ", " << props.maxGridSize[2] << " ]" 
+	   << endl;
+      cout << "  Registers per block: " << props.regsPerBlock << endl;
+      cout << endl;
+    }
+    */
+}
 
 static inline int
 monitor_print(const char *format, ...)
@@ -620,33 +679,33 @@ static void read_parameters(int argc, char **argv)
     Param.theRate = int_message[1];
     Param.theNumberOfPlanes = int_message[2];
     Param.theNumberOfStations = int_message[3];
-    Param.theTypeOfDamping = int_message[4];
+    Param.theTypeOfDamping = (damping_type_t)int_message[4];
     Param.theDampingStatisticsFlag = int_message[5];
     Param.theMeshOutFlag = int_message[6];
     Param.theCheckPointingRate = int_message[7];
     Param.theUseCheckPoint = int_message[8];
-    Param.includeNonlinearAnalysis = int_message[9];
-    Param.theStiffness = int_message[10];
-    Param.printK = int_message[11];
-    Param.printStationVelocities = int_message[12];
-    Param.printStationAccelerations = int_message[13];
+    Param.includeNonlinearAnalysis = (noyesflag_t)int_message[9];
+    Param.theStiffness = (stiffness_type_t)int_message[10];
+    Param.printK = (noyesflag_t)int_message[11];
+    Param.printStationVelocities = (noyesflag_t)int_message[12];
+    Param.printStationAccelerations = (noyesflag_t)int_message[13];
     Param.theTimingBarriersFlag = int_message[14];
-    Param.includeBuildings = int_message[15];
-    Param.storeMeshCoordinatesForMatlab = int_message[16];
-    Param.drmImplement = int_message[17];
-    Param.useInfQk = int_message[18];
+    Param.includeBuildings = (noyesflag_t)int_message[15];
+    Param.storeMeshCoordinatesForMatlab = (noyesflag_t)int_message[16];
+    Param.drmImplement = (noyesflag_t)int_message[17];
+    Param.useInfQk = (noyesflag_t)int_message[18];
     Param.theStepMeshingFactor = int_message[19];
-    Param.includeTopography = int_message[20];
-    Param.includeIncidentPlaneWaves = int_message[21];
-    Param.includeHomogeneousHalfSpace = int_message[22];
-    Param.IstanbulVelocityModel = int_message[23];
-    Param.useProfile = int_message[24];
-    Param.useParametricQ = int_message[25];
-    Param.basinVelocityModel = int_message[26];
+    Param.includeTopography = (noyesflag_t)int_message[20];
+    Param.includeIncidentPlaneWaves = (noyesflag_t)int_message[21];
+    Param.includeHomogeneousHalfSpace = (noyesflag_t)int_message[22];
+    Param.IstanbulVelocityModel = (noyesflag_t)int_message[23];
+    Param.useProfile = (noyesflag_t)int_message[24];
+    Param.useParametricQ = (noyesflag_t)int_message[25];
+    Param.basinVelocityModel = (noyesflag_t)int_message[26];
     Param.basinXCount = int_message[27];
     Param.basinYCount = int_message[28];
     Param.basinZCount = int_message[29];
-    Param.threeDVelocityModel = int_message[30];
+    Param.threeDVelocityModel = (noyesflag_t)int_message[30];
 
     /*Broadcast all string params*/
     MPI_Bcast(Param.parameters_input_file, 256, MPI_CHAR, 0, comm_solver);
@@ -925,24 +984,24 @@ static int32_t parse_parameters(const char *numericalin)
         checkpoint_path[256] = "outputfiles/checkpoints",
         drm_directory[256] = "outputfiles/DRM";
 
-    damping_type_t typeOfDamping = -1;
-    stiffness_type_t stiffness_method = -1;
-    noyesflag_t have_buildings = -1;
-    noyesflag_t have_parametricq = -1;
-    noyesflag_t includeNonlinear = -1;
-    noyesflag_t printMatrixK = -1;
-    noyesflag_t printStationVels = -1;
-    noyesflag_t printStationAccs = -1;
-    noyesflag_t useInfQk = -1;
+    damping_type_t typeOfDamping = UNSET_DAMP;
+    stiffness_type_t stiffness_method = UNSET_STIFF;
+    noyesflag_t have_buildings = UNSET;
+    noyesflag_t have_parametricq = UNSET;
+    noyesflag_t includeNonlinear = UNSET;
+    noyesflag_t printMatrixK = UNSET;
+    noyesflag_t printStationVels = UNSET;
+    noyesflag_t printStationAccs = UNSET;
+    noyesflag_t useInfQk = UNSET;
 
-    noyesflag_t meshCoordinatesForMatlab = -1;
-    noyesflag_t implementdrm = -1;
-    noyesflag_t haveTopography = -1;
-    noyesflag_t includePlaneWaves = -1;
-    noyesflag_t includeHmgHalfSpace = -1;
-    noyesflag_t includeIstanbulVelModel = -1;
-    noyesflag_t includeBasinVelModel = -1;
-    noyesflag_t include3DVelModel = -1;
+    noyesflag_t meshCoordinatesForMatlab = UNSET;
+    noyesflag_t implementdrm = UNSET;
+    noyesflag_t haveTopography = UNSET;
+    noyesflag_t includePlaneWaves = UNSET;
+    noyesflag_t includeHmgHalfSpace = UNSET;
+    noyesflag_t includeIstanbulVelModel = UNSET;
+    noyesflag_t includeBasinVelModel = UNSET;
+    noyesflag_t include3DVelModel = UNSET;
 
     /* Obtain the specification of the simulation */
     if ((fp = fopen(physicsin, "r")) == NULL)
@@ -2704,7 +2763,7 @@ mesh_generate()
     Timer_Stop("Octor Newtree");
     if (Global.myID == 0)
     {
-        monitor_print("%9.2f\n\n", Timer_Value("Octor Newtree", 0));
+        monitor_print("%9.2f\n\n", Timer_Value("Octor Newtree", (TimerKind)0));
     }
 
     /* Essential for DRM implementation */
@@ -2734,7 +2793,7 @@ mesh_generate()
     };
     if (Global.myID == 0)
     {
-        monitor_print("done : %9.2f seconds\n", Timer_Value("Slice CVM", 0));
+        monitor_print("done : %9.2f seconds\n", Timer_Value("Slice CVM", (TimerKind)0));
     }
 #endif
 
@@ -2769,7 +2828,7 @@ mesh_generate()
         Timer_Stop("Octor Refinetree");
         if (Global.myID == 0)
         {
-            monitor_print("%11.2f", Timer_Value("Octor Refinetree", 0) - prevtref);
+            monitor_print("%11.2f", Timer_Value("Octor Refinetree", (TimerKind)0) - prevtref);
             if (Param.theStepMeshingFactor == 0)
             {
                 monitor_print("\n");
@@ -2778,7 +2837,7 @@ mesh_generate()
             {
                 monitor_print("   %4d %6.2f\n", step, Param.theFactor / ppwl);
             }
-            prevtref = Timer_Value("Octor Refinetree", 0);
+            prevtref = Timer_Value("Octor Refinetree", (TimerKind)0);
             fflush(stdout);
         }
 
@@ -2807,8 +2866,8 @@ mesh_generate()
         Timer_Stop("Octor Balancetree");
         if (Global.myID == 0)
         {
-            monitor_print("%11.2f\n", Timer_Value("Octor Balancetree", 0) - prevtbal);
-            prevtbal = Timer_Value("Octor Balancetree", 0);
+            monitor_print("%11.2f\n", Timer_Value("Octor Balancetree", (TimerKind)0) - prevtbal);
+            prevtbal = Timer_Value("Octor Balancetree", (TimerKind)0);
             fflush(stdout);
         }
 
@@ -2837,8 +2896,8 @@ mesh_generate()
         Timer_Stop("Octor Partitiontree");
         if (Global.myID == 0)
         {
-            monitor_print("%11.2f\n\n", Timer_Value("Octor Partitiontree", 0) - prevtpar);
-            prevtpar = Timer_Value("Octor Partitiontree", 0);
+            monitor_print("%11.2f\n\n", Timer_Value("Octor Partitiontree", (TimerKind)0) - prevtpar);
+            prevtpar = Timer_Value("Octor Partitiontree", (TimerKind)0);
             fflush(stdout);
         }
 
@@ -2871,7 +2930,7 @@ mesh_generate()
         Timer_Stop("Carve Buildings");
         if (Global.myID == 0)
         {
-            monitor_print("%9.2f\n", Timer_Value("Carve Buildings", 0));
+            monitor_print("%9.2f\n", Timer_Value("Carve Buildings", (TimerKind)0));
             fflush(stdout);
         }
 
@@ -2892,16 +2951,16 @@ mesh_generate()
         Timer_Stop("Octor Partitiontree");
         if (Global.myID == 0)
         {
-            monitor_print("%9.2f\n", Timer_Value("Octor Partitiontree", 0));
+            monitor_print("%9.2f\n", Timer_Value("Octor Partitiontree", (TimerKind)0));
             fflush(stdout);
         }
     }
 
     if (Global.myID == 0 && Param.theStepMeshingFactor != 0)
     {
-        monitor_print("Total refine    %33s %9.2f\n", "", Timer_Value("Octor Refinetree", 0));
-        monitor_print("Total balance   %33s %9.2f\n", "", Timer_Value("Octor Balancetree", 0));
-        monitor_print("Total partition %33s %9.2f\n\n", "", Timer_Value("Octor Partitiontree", 0));
+        monitor_print("Total refine    %33s %9.2f\n", "", Timer_Value("Octor Refinetree", (TimerKind)0));
+        monitor_print("Total balance   %33s %9.2f\n", "", Timer_Value("Octor Balancetree", (TimerKind)0));
+        monitor_print("Total partition %33s %9.2f\n\n", "", Timer_Value("Octor Partitiontree", (TimerKind)0));
         fflush(stdout);
     }
 
@@ -2925,7 +2984,7 @@ mesh_generate()
     Timer_Stop("Octor Extractmesh");
     if (Global.myID == 0)
     {
-        monitor_print("%9.2f\n", Timer_Value("Octor Partitiontree", 0));
+      monitor_print("%9.2f\n", Timer_Value("Octor Partitiontree", (TimerKind)0));
     }
 
     Timer_Start("Mesh correct properties");
@@ -2942,7 +3001,7 @@ mesh_generate()
     Timer_Stop("Mesh correct properties");
     if (Global.myID == 0)
     {
-        monitor_print("%9.2f\n\n", Timer_Value("Mesh correct properties", 0));
+        monitor_print("%9.2f\n\n", Timer_Value("Mesh correct properties", (TimerKind)0));
         fflush(stdout);
     }
 
@@ -3371,7 +3430,7 @@ mesh_output()
 
     if (Global.myID == 0)
     {
-        printf("done : %9.2f seconds\n", Timer_Value("Mesh Out", 0));
+        printf("done : %9.2f seconds\n", Timer_Value("Mesh Out", (TimerKind)0));
     }
 
     return;
@@ -4132,6 +4191,64 @@ void mu_and_lambda(double *theMu, double *theLambda,
 }
 
 /**
+ * gpu_init: Select one of the attached GPU devices and retrieve its
+ *           specifications.
+ *
+ */
+static void gpu_init(int32_t myID)
+{
+    int myDevID, devCount;
+
+    /* Select a GPU device for this process */
+    if (cudaGetDeviceCount(&devCount) != cudaSuccess) {
+      fprintf(stderr, "Thread %d: Failed to get GPU device count\n", myID);
+      MPI_Abort(MPI_COMM_WORLD, ERROR);
+      exit(1);
+    }
+
+    if (devCount == 0) {
+      fprintf(stderr, "Thread %d: NO GPU devices found\n", myID);
+      MPI_Abort(MPI_COMM_WORLD, ERROR);
+      exit(1);
+    }
+
+    myDevID = (Global.myID % devCount);
+    if (cudaSetDevice(myDevID) != cudaSuccess) {
+      fprintf(stderr, "Thread %d: Failed to set device\n", myID);
+      MPI_Abort(MPI_COMM_WORLD, ERROR);
+      exit(1);
+    }
+
+    /* Reset the device */
+    if (cudaDeviceReset() != cudaSuccess) {
+      fprintf(stderr, "Thread %d: Failed to reset device\n", myID);
+      MPI_Abort(MPI_COMM_WORLD, ERROR);
+      exit(1);
+    }
+
+    /* Set cache preference for larger L1 */
+    //if (cudaDeviceSetCacheConfig(cudaFuncCachePreferL1) != cudaSuccess) {
+    //  fprintf(stderr, "Thread %d: Failed to reset device cache config\n", myID);
+    //  MPI_Abort(MPI_COMM_WORLD, ERROR);
+    //  exit(1);
+    //}
+
+    /* Set the shared memory bank size to 8 */
+    cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);
+
+    /* Retrieve device hardware details */
+    getGPUHardware(myID, myDevID, &(Global.gpu_spec));
+
+    /* Initialize GPU metrics */
+    Global.gpu_spec.numdevices = devCount;
+    Global.gpu_spec.numbytespci = 0;
+    Global.gpu_spec.numflops = 0;
+    Global.gpu_spec.numbytes = 0;
+
+    return;
+}
+
+/**
  * Init matrices and constants, build comm schedule, allocate/init space
  * for the solver.
  */
@@ -4609,8 +4726,8 @@ read_myForces(int32_t timestep, double dt)
         double source_dt = get_srfhdt();
         double T = dt * timestep;
 
-        vector3D_t *aux1 = calloc(Global.theNodesLoaded, sizeof(vector3D_t));
-        vector3D_t *aux2 = calloc(Global.theNodesLoaded, sizeof(vector3D_t));
+        vector3D_t *aux1 = (vector3D_t *)calloc(Global.theNodesLoaded, sizeof(vector3D_t));
+        vector3D_t *aux2 = (vector3D_t *)calloc(Global.theNodesLoaded, sizeof(vector3D_t));
 
         if (aux1 == NULL || aux2 == NULL)
         {
@@ -4804,7 +4921,7 @@ static void solver_update_status(int step, const int start_step)
     if (Global.myID == 0)
     {
 
-        CurrTime = Timer_Value("Total Wall Clock", 0);
+        CurrTime = Timer_Value("Total Wall Clock", (TimerKind)0);
 
         if (lastCheckedTime == 0)
         {
@@ -5178,6 +5295,81 @@ solver_compute_displacement(mysolver_t *solver, mesh_t *mesh)
     Timer_Stop("Compute new displacement");
 }
 
+static void solver_load_forces_gpu(mysolver_t *solver, mesh_t *mesh)
+{
+
+  /* Copy forces to device */
+  cudaMemcpyAsync(solver->gpuData->forceDevice, solver->force, 
+		  mesh->nharbored * sizeof(fvector_t), cudaMemcpyHostToDevice,
+		  solver->streams[CUDA_STREAM_MAIN]);
+  solver->gpu_spec->numbytespci += mesh->nharbored * sizeof(fvector_t);
+
+  /* Create an event for the force transfer */
+  cudaEventRecord(solver->events[CUDA_EVENT_FORCE_WAIT], 
+		  solver->streams[CUDA_STREAM_MAIN]);
+
+  /* Uncomment for timing tests */
+  //cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  return;
+}
+
+static void solver_unload_disp_gpu(mysolver_t *solver, mesh_t *mesh)
+{
+  /* Copy updated tm2 displacements from device */
+  cudaMemcpyAsync(solver->tm2, solver->gpuData->tm2Device, 
+  		  mesh->nharbored * sizeof(fvector_t), cudaMemcpyDeviceToHost,
+  		  solver->streams[CUDA_STREAM_MAIN]);
+  solver->gpu_spec->numbytespci += mesh->nharbored * sizeof(fvector_t);
+
+  /* Uncomment for timing tests */
+  //cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  return;
+}
+
+
+/** Compute new displacements of my harbored nodes */
+static void
+solver_compute_displacement_gpu( int32_t myID, mysolver_t* solver, mesh_t* mesh )
+{
+  Timer_Start( "Compute new displacement" );
+
+  /* Ensure host forces have been copied to device */
+  //cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  int blocksize = solver->gpu_kernel[CUDA_KERNEL_DISPLACEMENT].blocksize;
+  int gridsize = solver->gpu_kernel[CUDA_KERNEL_DISPLACEMENT].gridsize;
+  int sharedmem = solver->gpu_kernel[CUDA_KERNEL_DISPLACEMENT].sharedmem;
+
+  cudaGetLastError();
+
+  kernelDispCalc<<<gridsize, blocksize, sharedmem, solver->streams[CUDA_STREAM_MAIN]>>>(mesh->nharbored, solver->gpuDataDevice, Param.printStationAccelerations);
+
+  cudaError_t cerror = cudaGetLastError();
+  if (cerror != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Calc damping conv kernel - %s\n", myID, 
+	      cudaGetErrorString(cerror));
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+
+  solver->gpu_spec->numflops += kernel_flops_per_thread(FLOP_DISPLACEMENT) * mesh->nharbored;
+  
+  solver->gpu_spec->numbytes += kernel_mem_per_thread(FLOP_DISPLACEMENT) * mesh->nharbored;
+
+  /* Ensure host forces have been copied to device */
+  cudaEventSynchronize(solver->events[CUDA_EVENT_FORCE_WAIT]);
+
+  /* zero out the force vector for all nodes */
+  memset( solver->force, 0, sizeof(fvector_t) * mesh->nharbored );
+
+  /* Uncomment for timing tests */
+  //cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  Timer_Stop( "Compute new displacement" );
+}
+
 static void
 solver_geostatic_fix(int step)
 {
@@ -5253,55 +5445,55 @@ static void solver_run_collect_timers(void)
      */
     if (Timer_Exists("Print Planes"))
     {
-        Timer_Reduce("Print Planes", MAX | MIN, comm_solver);
+      Timer_Reduce("Print Planes", (TimerKind)(MAX | MIN), comm_solver);
     }
 
     if (Timer_Exists("Print Stations"))
     {
-        Timer_Reduce("Print Stations", MAX | MIN, comm_solver);
+      Timer_Reduce("Print Stations", (TimerKind)(MAX | MIN), comm_solver);
     }
 
     if (Timer_Exists("Compute Non-linear Entities"))
     {
-        Timer_Reduce("Compute Non-linear Entities", MAX | MIN | AVERAGE, comm_solver);
+      Timer_Reduce("Compute Non-linear Entities", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     if (Timer_Exists("Compute addforces Non-linear"))
     {
-        Timer_Reduce("Compute addforces Non-linear", MAX | MIN | AVERAGE, comm_solver);
-        Timer_Reduce("Compute addforces gravity", MAX | MIN | AVERAGE, comm_solver);
+      Timer_Reduce("Compute addforces Non-linear", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+      Timer_Reduce("Compute addforces gravity", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     if (Timer_Exists("Solver drm output"))
     {
-        Timer_Reduce("Solver drm output", MAX | MIN | AVERAGE, comm_solver);
+      Timer_Reduce("Solver drm output", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     if (Timer_Exists("Solver drm read displacements"))
     {
-        Timer_Reduce("Solver drm read displacements", MAX | MIN | AVERAGE, comm_solver);
+      Timer_Reduce("Solver drm read displacements", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     if (Timer_Exists("Solver drm force compute"))
     {
-        Timer_Reduce("Solver drm force compute", MAX | MIN | AVERAGE, comm_solver);
+      Timer_Reduce("Solver drm force compute", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
-    Timer_Reduce("Read My Forces", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Compute addforces s", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Compute addforces e", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Damping addforce", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("1st schedule send data (contribution)", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("1st compute adjust (distribution)", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("2nd schedule send data (contribution)", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Compute new displacement", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("3rd schedule send data (sharing)", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("2nd compute adjust (assignment)", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("4th schadule send data (sharing)", MAX | MIN | AVERAGE, comm_solver);
+    Timer_Reduce("Read My Forces", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Compute addforces s", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Compute addforces e", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Damping addforce", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("1st schedule send data (contribution)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("1st compute adjust (distribution)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("2nd schedule send data (contribution)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Compute new displacement", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("3rd schedule send data (sharing)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("2nd compute adjust (assignment)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("4th schadule send data (sharing)", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
-    Timer_Reduce("Solver I/O", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Compute Physics", MAX | MIN | AVERAGE, comm_solver);
-    Timer_Reduce("Communication", MAX | MIN | AVERAGE, comm_solver);
+    Timer_Reduce("Solver I/O", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Compute Physics", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
+    Timer_Reduce("Communication", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 }
 
 /**
@@ -5382,11 +5574,20 @@ static void solver_run()
         solver_send_force_anchored(Global.mySolver);
         Timer_Stop("Communication");
 
+        Timer_Start("GPU Memory Copy");
+        solver_load_forces_gpu(Global.mySolver, Global.myMesh);
+        Timer_Stop("GPU Memory Copy");
+
         Timer_Start("Compute Physics");
-        solver_compute_displacement(Global.mySolver, Global.myMesh);
+        /* solver_compute_displacement(Global.mySolver, Global.myMesh); */
+        solver_compute_displacement_gpu(Global.myID, Global.mySolver, Global.myMesh);
         solver_geostatic_fix(step);
         solver_load_fixedbase_displacements(Global.mySolver, step);
         Timer_Stop("Compute Physics");
+
+        Timer_Start("GPU Memory Copy");
+        solver_unload_disp_gpu(Global.mySolver, Global.myMesh);
+        Timer_Stop("GPU Memory Copy");
 
         Timer_Start("Communication");
         HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
@@ -7225,11 +7426,11 @@ static void print_timing_stat()
 {
 
     double TotalMeshingTime;
-    TotalMeshingTime = Timer_Value("Octor Newtree", 0) + Timer_Value("Octor Refinetree", 0) + Timer_Value("Octor Balancetree", 0) + Timer_Value("Octor Partitiontree", 0) + Timer_Value("Octor Extractmesh", 0) + Timer_Value("Mesh correct properties", 0) + Timer_Value("Mesh Stats Print", 0);
+    TotalMeshingTime = Timer_Value("Octor Newtree", (TimerKind)0) + Timer_Value("Octor Refinetree", (TimerKind)0) + Timer_Value("Octor Balancetree", (TimerKind)0) + Timer_Value("Octor Partitiontree", (TimerKind)0) + Timer_Value("Octor Extractmesh", (TimerKind)0) + Timer_Value("Mesh correct properties", (TimerKind)0) + Timer_Value("Mesh Stats Print", (TimerKind)0);
 
     if (Param.includeBuildings == YES)
     {
-        TotalMeshingTime += Timer_Value("Carve Buildings", 0);
+        TotalMeshingTime += Timer_Value("Carve Buildings", (TimerKind)0);
     }
 
     printf("\n\n__________________________Raw Timers__________________________\n\n");
@@ -7248,26 +7449,26 @@ static void print_timing_stat()
     printf("DeltaT used               : %.6f seconds\n", Param.theDeltaT);
     printf("Critical deltaT           : %.6f seconds\n", Global.theCriticalT);
     printf("\n");
-    printf("Total Wall Clock          : %.2f seconds\n", Timer_Value("Total Wall Clock", 0));
-    printf("Time/step                 : %.6f seconds\n", Timer_Value("Solver", 0) / Param.theTotalSteps);
-    printf("Time/step/(elem/PE)       : %.6f millisec\n", Timer_Value("Solver", 0) * 1000.0 / Param.theTotalSteps /
+    printf("Total Wall Clock          : %.2f seconds\n", Timer_Value("Total Wall Clock", (TimerKind)0));
+    printf("Time/step                 : %.6f seconds\n", Timer_Value("Solver", (TimerKind)0) / Param.theTotalSteps);
+    printf("Time/step/(elem/PE)       : %.6f millisec\n", Timer_Value("Solver", (TimerKind)0) * 1000.0 / Param.theTotalSteps /
                                                               (Global.theETotal * 1.0 / Global.theGroupSize));
     printf("Simulation Rate Variation : %.3f (Average)   %.3f (Min)   %.3f (Max)  (sec/%d timesteps)\n",
-           (Timer_Value("Solver", 0) / Param.theTotalSteps) * Param.monitor_stats_rate,
+           (Timer_Value("Solver", (TimerKind)0) / Param.theTotalSteps) * Param.monitor_stats_rate,
            Global.fastestTimeSteps, Global.slowestTimeSteps, Param.monitor_stats_rate);
     printf("\n");
 
     printf("\n____________Breakdown____________\n");
     printf("TOTAL MESHING                       : %.2f seconds\n", TotalMeshingTime);
-    printf("    Octor Newtree                   : %.2f seconds\n", Timer_Value("Octor Newtree", 0));
-    printf("    Octor Refinetree                : %.2f seconds\n", Timer_Value("Octor Refinetree", 0));
-    printf("    Octor Balancetree               : %.2f seconds\n", Timer_Value("Octor Balancetree", 0));
+    printf("    Octor Newtree                   : %.2f seconds\n", Timer_Value("Octor Newtree", (TimerKind)0));
+    printf("    Octor Refinetree                : %.2f seconds\n", Timer_Value("Octor Refinetree", (TimerKind)0));
+    printf("    Octor Balancetree               : %.2f seconds\n", Timer_Value("Octor Balancetree", (TimerKind)0));
     if (Timer_Exists("Carve Buildings"))
-        printf("    Octor Carve Buildings           : %.2f seconds\n", Timer_Value("Carve Buildings", 0));
-    printf("    Octor Partitiontree             : %.2f seconds\n", Timer_Value("Octor Partitiontree", 0));
-    printf("    Octor Extractmesh               : %.2f seconds\n", Timer_Value("Octor Extractmesh", 0));
-    printf("    Mesh correct properties         : %.2f seconds\n", Timer_Value("Mesh correct properties", 0));
-    printf("    Mesh Stats Print                : %.2f seconds\n", Timer_Value("Mesh Stats Print", 0));
+      printf("    Octor Carve Buildings           : %.2f seconds\n", Timer_Value("Carve Buildings", (TimerKind)0));
+    printf("    Octor Partitiontree             : %.2f seconds\n", Timer_Value("Octor Partitiontree", (TimerKind)0));
+    printf("    Octor Extractmesh               : %.2f seconds\n", Timer_Value("Octor Extractmesh", (TimerKind)0));
+    printf("    Mesh correct properties         : %.2f seconds\n", Timer_Value("Mesh correct properties", (TimerKind)0));
+    printf("    Mesh Stats Print                : %.2f seconds\n", Timer_Value("Mesh Stats Print", (TimerKind)0));
     printf("\n");
 
     if (Param.drmImplement == YES)
@@ -7324,7 +7525,7 @@ static void print_timing_stat()
     printf("SOURCE INITIALIZATION               : %.2f (Max) %.2f (Min) seconds\n",
            Timer_Value("Source Init", MAX), Timer_Value("Source Init", MIN));
     printf("\n");
-    printf("TOTAL SOLVER                        : %.2f seconds\n", Timer_Value("Solver", 0));
+    printf("TOTAL SOLVER                        : %.2f seconds\n", Timer_Value("Solver", (TimerKind)0));
     printf("    Read My Forces                  : %.2f (Average)   %.2f (Max) %.2f (Min) seconds\n",
            Timer_Value("Read My Forces", AVERAGE),
            Timer_Value("Read My Forces", MAX),
@@ -7425,9 +7626,9 @@ static void print_timing_stat()
                Timer_Value("Print Stations", MIN));
     if (Timer_Exists("Checkpoint"))
         printf("        Checkpoint                  : %.2f\n",
-               Timer_Value("Checkpoint", 0));
+               Timer_Value("Checkpoint", (TimerKind)0));
     printf("\n");
-    printf("TOTAL WALL CLOCK                    : %.2f seconds\n", Timer_Value("Total Wall Clock", 0));
+    printf("TOTAL WALL CLOCK                    : %.2f seconds\n", Timer_Value("Total Wall Clock", (TimerKind)0));
     printf("\n");
     printf("\n____________Analysis_____________\n");
     printf("Solver I/O                 : %.2f (Average)   %.2f (Max) %.2f (Min) seconds\n",
@@ -7511,8 +7712,8 @@ source_init(const char *physicsin)
 
             /* \todo add assertion for node_count == Global.theNodesLoaded */
 
-            Global.theNodesLoadedList = malloc(sizeof(int32_t) * Global.theNodesLoaded);
-            Global.myForces = calloc(Global.theNodesLoaded, sizeof(vector3D_t));
+            Global.theNodesLoadedList = (int32_t *)malloc(sizeof(int32_t) * Global.theNodesLoaded);
+            Global.myForces = (vector3D_t *)calloc(Global.theNodesLoaded, sizeof(vector3D_t));
 
             if (Global.myForces == NULL || Global.theNodesLoadedList == NULL)
             {
@@ -8467,7 +8668,7 @@ output_get_stats(void)
     if (Param.theOutputParameters.parallel_output)
     {
         ret = output_collect_io_stats(Param.theOutputParameters.stats_filename,
-                                      &disp_stats, &vel_stats, Timer_Value("Total Wall Clock", 0));
+                                      &disp_stats, &vel_stats, Timer_Value("Total Wall Clock", (TimerKind)0));
 
         /* magic trick so print_timing_stat() prints something sensible
          * for the 4D output time in the parallel case.
@@ -9220,7 +9421,7 @@ int main(int argc, char **argv)
         Timer_Start("Init Drm Parameters");
         Param.theDrmPart = drm_init(Global.myID, Param.parameters_input_file, Param.includeBuildings);
         Timer_Stop("Init Drm Parameters");
-        Timer_Reduce("Init Drm Parameters", MAX | MIN | AVERAGE, comm_solver);
+        Timer_Reduce("Init Drm Parameters", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     if (Param.includeTopography == YES)
@@ -9280,7 +9481,7 @@ int main(int argc, char **argv)
         drm_stats(Global.myID, Global.theGroupSize, Global.theXForMeshOrigin,
                   Global.theYForMeshOrigin, Global.theZForMeshOrigin);
         Timer_Stop("Drm Init");
-        Timer_Reduce("Drm Init", MAX | MIN | AVERAGE, comm_solver);
+        Timer_Reduce("Drm Init", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
     }
 
     /* Initialize topography solver analysis structures */
@@ -9304,7 +9505,7 @@ int main(int argc, char **argv)
     mesh_print_stat(Global.myOctree, Global.myMesh, Global.myID, Global.theGroupSize,
                     Param.theMeshStatFilename);
     Timer_Stop("Mesh Stats Print");
-    Timer_Reduce("Mesh Stats Print", MAX | MIN, comm_solver);
+    Timer_Reduce("Mesh Stats Print", (TimerKind)(MAX | MIN), comm_solver);
 
     if (Param.theNumberOfStations != 0)
     {
@@ -9331,7 +9532,7 @@ int main(int argc, char **argv)
     Timer_Start("Solver Stats Print");
     solver_printstat(Global.mySolver);
     Timer_Stop("Solver Stats Print");
-    Timer_Reduce("Solver Stats Print", MAX | MIN, comm_solver);
+    Timer_Reduce("Solver Stats Print", (TimerKind)(MAX | MIN), comm_solver);
 
     /* Initialize nonlinear solver analysis structures */
     if (Param.includeNonlinearAnalysis == YES)
@@ -9356,7 +9557,7 @@ int main(int argc, char **argv)
     Timer_Start("Source Init");
     source_init(Param.parameters_input_file);
     Timer_Stop("Source Init");
-    Timer_Reduce("Source Init", MAX | MIN, comm_solver);
+    Timer_Reduce("Source Init", (TimerKind)(MAX | MIN), comm_solver);
 
     /* Mapping element indices for stiffness
      * This is for compatibility with nonlinear

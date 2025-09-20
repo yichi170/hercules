@@ -40,6 +40,9 @@
 #include <stdio.h>
 #include <mpi.h>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 #include "octor.h"
 
 #define ERROR       HERC_ERROR
@@ -52,6 +55,56 @@
 # endif /* DEBUG */
 #endif /* DO_DEBUG */
 
+/* Maximum simultaneous CUDA streams */
+#define MAX_CUDA_STREAM       2
+#define CUDA_STREAM_MAIN      0
+#define CUDA_STREAM_SECONDARY 1
+
+/* Maximum number of kernels */
+#define MAX_CUDA_KERNEL             4
+#define CUDA_KERNEL_STIFFNESS_FORCE 0
+#define CUDA_KERNEL_DAMPING_CONV    1
+#define CUDA_KERNEL_DAMPING_FORCE   2
+#define CUDA_KERNEL_DISPLACEMENT    3
+
+/* Kernel names */
+#define CUDA_KERNEL_NAME_STIFFNESS_FORCE       "kernelStiffnessCalcLocal"
+#define CUDA_KERNEL_NAME_DAMPING_CONV          "kernelDampingCalcConv"
+#define CUDA_KERNEL_NAME_DAMPING_FORCE         "kernelDampingCalcLocal"
+#define CUDA_KERNEL_NAME_DISPLACEMENT          "kernelDispCalc"
+
+/* Maximum simultaneous CUDA events */
+#define MAX_CUDA_EVENT             1
+#define CUDA_EVENT_FORCE_WAIT      0
+
+/* GPU device specifications */
+typedef struct {
+  int32_t device;
+  int32_t max_threads;
+  int32_t max_block_dim[3];
+  int32_t max_grid_dim[3];
+  int32_t regs_per_block;
+  int32_t shared_per_block;
+  int32_t warp_size;
+  int32_t warp_allocation_size;
+  int32_t register_allocation_size;
+
+  /* Variables for tracking performance metrics */
+  int32_t numdevices;
+  int64_t numbytespci;
+  int64_t numflops;
+  int64_t numbytes;
+} gpu_spec_t;
+
+
+/* GPU kernel specifications */
+typedef struct {
+  char name[32];
+  char *handle;
+  int gridsize;
+  int blocksize;
+  int sharedmem;
+} gpu_kernel_t;
 
 extern MPI_Comm comm_solver;
 extern MPI_Comm comm_IO;
@@ -281,6 +334,49 @@ struct schedule_t {
 typedef struct schedule_t schedule_t;
 
 
+/* GPU copy of application data */
+typedef struct gpu_data_t {
+    int32_t      nharbored; // Number of harbored nodes
+    int32_t      lenum; // Number of elements
+
+    //elem_t*      elemTableDevice; // GPU copy of elemTable data structure
+    //e_t*         eTableDevice; // GPU copy of eTable data structure
+    //n_t*         nTableDevice; // GPU copy of nTable data structure
+    fvector_t*   tm1Device; // GPU nodal tm1 displacements
+    fvector_t*   tm2Device; // GPU nodal tm2 displacements
+    fvector_t*   tm3Device; // GPU nodal tm3 displacements
+    fvector_t*   forceDevice; // GPU nodal forces
+
+    fvector_t*   conv_shear_1Device;  /* Approximate Convolution Calculation */
+    fvector_t*   conv_shear_2Device;
+    fvector_t*   conv_kappa_1Device;
+    fvector_t*   conv_kappa_2Device;
+
+    double*      c1ArrayDevice;
+    double*      c2ArrayDevice;
+    int32_t*     lnidArrayDevice;
+    double*      g0_shearArrayDevice;
+    double*      g1_shearArrayDevice;
+    double*      g0_kappaArrayDevice;
+    double*      g1_kappaArrayDevice;
+    double*      b_shearArrayDevice;
+    double*      a0_shearArrayDevice;
+    double*      a1_shearArrayDevice;
+    double*      b_kappaArrayDevice;
+    double*      a0_kappaArrayDevice;
+    double*      a1_kappaArrayDevice;
+
+    solver_float *mass_simpleArrayDevice;
+    solver_float *mass2_minusaMArrayDevice[3];
+    solver_float *mass_minusaMArrayDevice[3];
+
+    fvector_t*   shearVectorDevice;
+    fvector_t*   kappaVectorDevice;
+    //edata_t*     matPropsDevice;
+
+} gpu_data_t;
+
+
 /**
  * Solver data structure.
  */
@@ -319,6 +415,15 @@ struct mysolver_t {
     fvector_t* conv_kappa_1;
     fvector_t* conv_kappa_2;
     fvector_t* conv_kappa_3;
+
+    /* GPU device data structures - should be declared in a separate struct */
+    gpu_spec_t*  gpu_spec; // GPU device specifications
+    gpu_kernel_t*  gpu_kernel; // GPU kernel specifications
+    gpu_data_t*  gpuData;
+    gpu_data_t*  gpuDataDevice;
+
+    cudaStream_t streams[MAX_CUDA_STREAM]; // Streams asynchronous operation
+    cudaEvent_t  events[MAX_CUDA_EVENT];   // Events for asynch operation
 };
 
 typedef struct mysolver_t mysolver_t;

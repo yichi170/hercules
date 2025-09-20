@@ -20,13 +20,13 @@ struct timer {
 };
 
 
-static int FindTimer(char* TimerName);
+static int FindTimer(const char* TimerName);
 
 struct timer Timers[MAXTIMERS];
 static int   NumberOfTimersUsed = 0;
 
 
-void  Timer_Start(char* TimerName){
+void  Timer_Start(const char* TimerName){
 
     int timernum;
 
@@ -55,7 +55,7 @@ void  Timer_Start(char* TimerName){
 
 
 
-void     Timer_Stop(char* TimerName){
+void     Timer_Stop(const char* TimerName){
 
     int timernum;
 
@@ -74,7 +74,7 @@ void     Timer_Stop(char* TimerName){
 
 
 
-void     Timer_Reset(char* TimerName){
+void     Timer_Reset(const char* TimerName){
 
     int timernum;
 
@@ -95,7 +95,7 @@ void     Timer_Reset(char* TimerName){
 
 
 /*Only current use is to set non-cumlative timers */
-void     Timer_Config(char* TimerName, enum TimerKind kind){
+void     Timer_Config(const char* TimerName, enum TimerKind kind){
 
     int timernum;
 
@@ -112,7 +112,7 @@ void     Timer_Config(char* TimerName, enum TimerKind kind){
 
 
 
-double   Timer_Value(char* TimerName, enum TimerKind kind){
+double   Timer_Value(const char* TimerName, enum TimerKind kind){
 
     int timernum;
 
@@ -142,7 +142,7 @@ double   Timer_Value(char* TimerName, enum TimerKind kind){
 
 
 /*Used to see if a timer has been instantiated */
-int      Timer_Exists(char* TimerName){
+int      Timer_Exists(const char* TimerName){
 
     int timernum;
  
@@ -186,7 +186,7 @@ void     Timer_PrintAll(MPI_Comm communicator){
 
 
 
-void     Timer_Reduce(char* TimerName, enum TimerKind kind, MPI_Comm Communicator){
+void     Timer_Reduce(const char* TimerName, enum TimerKind kind, MPI_Comm Communicator){
 
     int timernum;
 
@@ -225,7 +225,7 @@ void     Timer_Reduce(char* TimerName, enum TimerKind kind, MPI_Comm Communicato
 
 
 
-static int FindTimer(char* TimerName){
+static int FindTimer(const char* TimerName){
 
     int index;
     for( index=0; index<NumberOfTimersUsed; index++)

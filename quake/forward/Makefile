@@ -36,10 +36,10 @@ endif
 IO_CPPFLAGS ?= -DUSECVMDB
 
 
-CPPFLAGS += -I$(ETREE_DIR) -I$(CVM_DIR) -I$(OCTOR_DIR) -I.
+CPPFLAGS += -I$(ETREE_DIR) -I$(CVM_DIR) -I$(OCTOR_DIR) -I. -I$(TACC_MPI_DIR)/include
 CPPFLAGS += $(SOLVE_CPPFLAGS) $(IO_CPPFLAGS) $(VIS_CPPFLAGS)
 
-LDFLAGS += -lm
+LDFLAGS += -lm -L$(TACC_CUDA_DIR)/lib64 -lcudart
 
 ifeq ($(SYSTEM), BGW)
   LOADLIBES += /bgl/local/lib/libmpihpm_c.a /bgl/BlueLight/ppcfloor/bglsys/lib/libbgl_perfctr.rts.a
@@ -95,6 +95,7 @@ psolve.o: psolve.c psolve.h output.h quakesource.h nonlinear.h io_planes.h \
           io_checkpoint.h stiffness.h damping.h quake_util.h timers.h \
 		  buildings.h meshformatlab.h drm.h topography.h drm_planewaves.h \
 		  basin.h
+	$(NVCC) $(CPPFLAGS) $(NVFLAGS) -diag-suppress=2464 -c $< -o $@
 
 quakesource.o: quakesource.c quakesource.h psolve.h
 

@@ -21,7 +21,7 @@
 #define STIFFNESS_H_
 
 typedef enum {
-    CONVENTIONAL = 0, EFFECTIVE
+  UNSET_STIFF = -1, CONVENTIONAL = 0, EFFECTIVE
 } stiffness_type_t;
 
 void linear_elements_count   (int32_t myID, mesh_t *myMesh);

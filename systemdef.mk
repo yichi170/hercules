@@ -31,8 +31,9 @@ ifeq ($(SYSTEM), Vista)
         CC += -I$$TACC_GSL_INC
         LDFLAGS += -L$$TACC_GSL_LIB -L$$TACC_PROJ_LIB
         LDFLAGS += -lgsl -lgslcblas -lproj
-        CPPFLAGS += -D_USE_FILE_OFFSET64 -D_FILE_OFFSET_BITS=64 -D_USE_LARGEFILE64 -DPROJ
+        CPPFLAGS += -D_USE_FILE_OFFSET64 -D_FILE_OFFSET_BITS=64 -D_USE_LARGEFILE64
         NVCC    = nvcc -arch=sm_90
+        NVCC += -I$$TACC_GSL_INC
 endif
 
 ifeq ($(SYSTEM), Stampede)
