@@ -91,7 +91,7 @@ psolve_novis.o: psolve.o
 single_query: single_query.o q4.o
 
 output.o: output.c output.h psolve.h
-psolve.o: psolve.c psolve.h output.h quakesource.h nonlinear.h io_planes.h \
+psolve.o: psolve.cu psolve.h output.h quakesource.h nonlinear.h io_planes.h \
           io_checkpoint.h stiffness.h damping.h quake_util.h timers.h \
 		  buildings.h meshformatlab.h drm.h topography.h drm_planewaves.h \
 		  basin.h
