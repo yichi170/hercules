@@ -36,6 +36,18 @@
 #define UNDERFLOW_CAP 1e-20
 
 
+/**
+ * Return minimum of two int32_t integers.
+ */
+int32_t imin(int32_t x, int32_t y)
+{
+  if (x < y) {
+    return(x);
+  } else {
+    return(y);
+  }
+}
+
 
 /**
  * For effective stiffness method:
@@ -46,26 +58,26 @@
  * \return 1 when there is at least one "non-zero" component;
  *         0 when all the components are "zero".
  */
-int vector_is_zero( const fvector_t* v )
-{
-    /*
-     * For scalability studies, uncomment the immediate return.
-     */
+/* int vector_is_zero( const fvector_t* v ) */
+/* { */
+/*     /\* */
+/*      * For scalability studies, uncomment the immediate return. */
+/*      *\/ */
 
-    /* return 1; */
+/*     /\* return 1; *\/ */
 
-    int i,j;
+/*     int i,j; */
 
-    for (i = 0; i < 8; i++) {
-        for(j = 0; j < 3; j++){
-            if (fabs( v[i].f[j] ) > UNDERFLOW_CAP) {
-                return 1;
-            }
-        }
-    }
+/*     for (i = 0; i < 8; i++) { */
+/*         for(j = 0; j < 3; j++){ */
+/*             if (fabs( v[i].f[j] ) > UNDERFLOW_CAP) { */
+/*                 return 1; */
+/*             } */
+/*         } */
+/*     } */
 
-    return 0;
-}
+/*     return 0; */
+/* } */
 
 /**
  * For conventional stiffness method:
@@ -76,24 +88,24 @@ int vector_is_zero( const fvector_t* v )
  * \return 1 when there is at least one "non-zero" component;
  *         0 when all the components are "zero".
  */
-int vector_is_all_zero( const fvector_t* v )
-{
-    /*
-     * For scalability studies, uncomment the immediate return.
-     */
+/* int vector_is_all_zero( const fvector_t* v ) */
+/* { */
+/*     /\* */
+/*      * For scalability studies, uncomment the immediate return. */
+/*      *\/ */
 
-    /* return 1; */
+/*     /\* return 1; *\/ */
 
-    int i;
+/*     int i; */
 
-    for (i = 0; i < 3; i++) {
-        if (fabs( v->f[i] ) > UNDERFLOW_CAP) {
-            return 1;
-        }
-    }
+/*     for (i = 0; i < 3; i++) { */
+/*         if (fabs( v->f[i] ) > UNDERFLOW_CAP) { */
+/*             return 1; */
+/*         } */
+/*     } */
 
-    return 0;
-}
+/*     return 0; */
+/* } */
 
 
 /**

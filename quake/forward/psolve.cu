@@ -59,9 +59,15 @@
 #include "buildings.h"
 #include "drm.h"
 #include "meshformatlab.h"
+
+#include "kernel.h"
+
 #include "topography.h"
 #include "drm_planewaves.h"
 #include "basin.h"
+
+#include <cuda.h>
+#include <cuda_runtime.h>
 
 /* ONLY GLOBAL VARIABLES ALLOWED OUTSIDE OF PARAM. and GLOBAL. IN ALL OF PSOLVE!! */
 MPI_Comm comm_solver;

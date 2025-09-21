@@ -28,6 +28,7 @@
 
 //#include "quake_util.h"
 #include "util.h"
+#include "kernel.h"
 #include "timers.h"
 #include "cvm.h"
 

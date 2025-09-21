@@ -42,6 +42,7 @@
 #include "topography.h"
 #include "drm.h"
 
+#include  "kernel.h"
 
 #define KAPPA_MIN      1.0E-010
 #define  QC  qc = 0.577350269189 /* sqrt(3.0)/3.0; */

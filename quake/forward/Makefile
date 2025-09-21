@@ -50,7 +50,7 @@ endif
 #
 PSOLVE_OBJECTS = psolve.o nrutila.o quakesource.o geometrics.o nonlinear.o \
 	commutil.o util.o output.o io_planes.o io_checkpoint.o stiffness.o \
-	damping.o quake_util.o timers.o buildings.o meshformatlab.o drm.o \
+	damping.o quake_util.o kernel.o timers.o buildings.o meshformatlab.o drm.o \
 	topography.o drm_planewaves.o basin.o
 
 
@@ -65,7 +65,7 @@ TARGET = qmesh psolve single_query q4showmeta
 
 qmesh: qmesh.o
 
-psolve: ${PSOLVE_OBJECTS} 
+psolve: ${PSOLVE_OBJECTS} ${OCTOR_LIB}
 	$(LD) $^ \
 	$(LOADLIBES) \
 	$(LDFLAGS) \
@@ -90,15 +90,17 @@ psolve_novis.o: psolve.o
 
 single_query: single_query.o q4.o
 
-output.o: output.c output.h psolve.h
+output.o: output.cc output.h psolve.h
 psolve.o: psolve.cu psolve.h output.h quakesource.h nonlinear.h io_planes.h \
           io_checkpoint.h stiffness.h damping.h quake_util.h timers.h \
 		  buildings.h meshformatlab.h drm.h topography.h drm_planewaves.h \
-		  basin.h
+		  basin.h kernel.h
 	$(NVCC) $(CPPFLAGS) $(NVFLAGS) -diag-suppress=2464 -c $< -o $@
 
-quakesource.o: quakesource.c quakesource.h psolve.h
+quakesource.o: quakesource.cc quakesource.h psolve.h
 
+kernel.o: kernel.cu kernel.h
+	$(NVCC) $(CPPFLAGS) $(NVFLAGS) -c $< -o $@
 
 all: $(TARGET)
 

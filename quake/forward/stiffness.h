@@ -31,13 +31,13 @@ void stiffness_init          (int32_t myID, mesh_t *myMesh);
 void compute_addforce_conventional( mesh_t* myMesh, mysolver_t* mySolver, fmatrix_t (*theK1)[8],
 				    fmatrix_t (*theK2)[8] );
 void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver );
-void aTransposeU( fvector_t* un, double* atu );
-void firstVector( const double* atu, double* finalVector, double a, double c, double b );
-void firstVector_kappa( const double* atu, double* finalVector, double kappa);
-void firstVector_mu( const double* atu, double* finalVector, double b);
-void au( fvector_t* resVec, const double* u );
-void reformF( const double* u, double* newU );
-void reformU( const double* u, double* newU );
+/* void aTransposeU( fvector_t* un, double* atu ); */
+/* void firstVector( const double* atu, double* finalVector, double a, double c, double b ); */
+/* void firstVector_kappa( const double* atu, double* finalVector, double kappa); */
+/* void firstVector_mu( const double* atu, double* finalVector, double b); */
+/* void au( fvector_t* resVec, const double* u ); */
+/* void reformF( const double* u, double* newU ); */
+/* void reformU( const double* u, double* newU ); */
 
 #endif /* STIFFNESS_H_ */
 

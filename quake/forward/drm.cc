@@ -35,6 +35,7 @@
 #include "buildings.h"
 #include "damping.h"
 
+#include "kernel.h"
 
 #define  NONE -1
 #define  MAX(a, b) (((a)>(b)) ? (a) : (b))

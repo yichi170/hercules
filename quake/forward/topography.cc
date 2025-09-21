@@ -35,6 +35,7 @@
 #include "topography.h"
 //#include "geometrics.h"
 
+#include "kernel.h"
 
 /* -------------------------------------------------------------------------- */
 /*                             Global Variables                               */

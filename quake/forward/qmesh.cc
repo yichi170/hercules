@@ -37,8 +37,17 @@
 #include <fcntl.h>
 #include <sys/time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "octor.h"
 #include "etree.h"
+
+#ifdef __cplusplus
+}
+#endif
+
 
 /* Static global variables */
 static int32_t myID, theGroupSize;
@@ -98,7 +107,13 @@ static double theNorth_m, theEast_m, theDepth_m;
 
 #ifdef USECVMDB
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "cvm.h"
+#ifdef __cplusplus
+}
+#endif
 
 #ifndef CVMBUFSIZE
 #define CVMBUFSIZE 100
