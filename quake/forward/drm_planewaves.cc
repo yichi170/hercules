@@ -146,11 +146,11 @@ void drm_planewaves_init ( int32_t myID, const char *parametersin ) {
     MPI_Bcast(double_message, 11, MPI_DOUBLE, 0, comm_solver);
     MPI_Bcast(int_message,     7, MPI_INT,    0, comm_solver);
 
-    thePlaneWaveType                = int_message[0];
+    thePlaneWaveType                = (pwtype_t)int_message[0];
     theDRMBox_halfwidthElements_ew  = int_message[1];
     theDRMBox_halfwidthElements_ns  = int_message[2];
     theDRMBox_DepthElements         = int_message[3];
-    theFncType                      = int_message[4];
+    theFncType                      = (fnctype_t)int_message[4];
     the_Ug_NoData                   = int_message[5];
     the_NoComp                      = int_message[6];
 

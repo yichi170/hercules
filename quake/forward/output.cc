@@ -786,7 +786,7 @@ po_check_local_node_id_range (
 
 
 static char*
-generate_local_string (const char* template, int pe_id)
+generate_local_string (const char* templ, int pe_id)
 {
     static const int extra_length_default = 5;
 
@@ -807,11 +807,11 @@ generate_local_string (const char* template, int pe_id)
     }
 
     /* 6 extra chars for "-%05d" + \0 if needed */
-    my_template = (char*)alloca (strlen (template) + 6);
-    strcpy (my_template, template);
+    my_template = (char*)alloca (strlen (templ) + 6);
+    strcpy (my_template, templ);
 
     /* does the template already have a "%d" */
-    if (strstr (template, "%d") == NULL) { /* it does not */
+    if (strstr (templ, "%d") == NULL) { /* it does not */
 	strcat (my_template, "-%05d");
     }
 

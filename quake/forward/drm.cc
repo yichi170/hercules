@@ -155,7 +155,7 @@ drm_part_t drm_init (int32_t myID, const char *parametersin, noyesflag_t include
 
 	MPI_Bcast(int_message, 2, MPI_INT, 0, comm_solver);
 
-	theDrmPart = int_message[0] ;
+	theDrmPart = (drm_part_t)int_message[0];
 	theDrmPrintRate = int_message[1];
 
 	double_message[0] = theDrmXMin;
@@ -238,7 +238,7 @@ int32_t drm_initparameters (const char *parametersin) {
 	char   which_drm_part[64],
        	   drm_output_directory[64];
 
-	drm_part_t drmPart = -1;
+	drm_part_t drmPart = UNSET_DRM_PART;
 
 	/* Opens parametersin file */
 
@@ -1244,7 +1244,7 @@ void proc_drm_elems( mesh_t   *myMesh,     int32_t   myID,
 	find_drm_file_readjust ( theGroupSize, myID, theTotalSteps  ) ;
 
 	Timer_Stop("Find Drm File To Readjust");
-	Timer_Reduce("Find Drm File To Readjust", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Find Drm File To Readjust", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	Timer_Start("Fill Drm Struct");
 
@@ -1528,14 +1528,14 @@ void proc_drm_elems( mesh_t   *myMesh,     int32_t   myID,
 
 
 	Timer_Stop("Fill Drm Struct");
-	Timer_Reduce("Fill Drm Struct", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Fill Drm Struct", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	Timer_Start("Comm of Drm Coordinates");
 
 	comm_drm_coordinates ( myMesh, theGroupSize, myID );
 
 	Timer_Stop("Comm of Drm Coordinates");
-	Timer_Reduce("Comm of Drm Coordinates", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Comm of Drm Coordinates", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	rearrange_drm_files ( myMesh, theGroupSize, myID );
 
@@ -1857,7 +1857,7 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 	}
 
 	/* Now we have everything, just need to know for which processors I will send data */
-	node_count_to_send_me = calloc(theGroupSize,sizeof(int32_t));
+	node_count_to_send_me = (int32_t *)calloc(theGroupSize,sizeof(int32_t));
 
 	for ( pid = 0; pid < theGroupSize; pid++ ) {
 
@@ -1900,15 +1900,15 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 		}
 	}
 
-	coord_i_owe = calloc(theGroupSize,sizeof(int32_t*));
-	pes_i_owe_id = calloc(pes_i_owe_cnt,sizeof(int32_t));
-	array_cnt_me = calloc(pes_i_owe_cnt,sizeof(int32_t));
+	coord_i_owe = (int32_t **)calloc(theGroupSize, sizeof(int32_t *));
+	pes_i_owe_id = (int32_t *)calloc(pes_i_owe_cnt, sizeof(int32_t));
+	array_cnt_me = (int32_t *)calloc(pes_i_owe_cnt, sizeof(int32_t));
 
 	j = 0;
 	for ( i = 0; i < theGroupSize; ++i ) {
 		if(node_count_to_send_me[i]) {
 			pes_i_owe_id[j] = i;
-			coord_i_owe[i] = calloc(node_count_to_send_me[i],sizeof(int32_t));
+			coord_i_owe[i] = (int32_t *)calloc(node_count_to_send_me[i], sizeof(int32_t));
 			++j;
 		}
 	}
@@ -1937,7 +1937,7 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 	}
 
 	/* Now, drm coords_I_owe needs to be broadcasted all together */
-	node_count_to_send_grp = calloc(theGroupSize,sizeof(int32_t));
+	node_count_to_send_grp = (int32_t *)calloc(theGroupSize, sizeof(int32_t));
 
 	MPI_Allreduce( node_count_to_send_me, node_count_to_send_grp,
 				   theGroupSize, MPI_INT, MPI_SUM, newcomm[drmFileToOpen.cid] );
@@ -1955,15 +1955,15 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 		}
 	}
 
-	coord_grp_owe = calloc(pes_grp_owe_cnt,sizeof(int32_t*));
-	pes_grp_owe_id = calloc(pes_grp_owe_cnt,sizeof(int32_t));
-	array_cnt_grp = calloc(pes_grp_owe_cnt,sizeof(int32_t));
+	coord_grp_owe = (int32_t **)calloc(pes_grp_owe_cnt, sizeof(int32_t *));
+	pes_grp_owe_id = (int32_t *)calloc(pes_grp_owe_cnt, sizeof(int32_t));
+	array_cnt_grp = (int32_t *)calloc(pes_grp_owe_cnt, sizeof(int32_t));
 
 	j = 0;
 	for ( i = 0; i < theGroupSize; ++i ) {
 		if(node_count_to_send_grp[i]) {
 			pes_grp_owe_id[j] = i;
-			coord_grp_owe[j] = calloc(node_count_to_send_grp[i],sizeof(int32_t));
+			coord_grp_owe[j] = (int32_t *)calloc(node_count_to_send_grp[i],sizeof(int32_t));
 			/* Each Processor in the group broadcast coordinates(order) */
 			for( l = 0; l < pes_per_file[drmFileToOpen.cid]; ++l ) {
 
@@ -1986,7 +1986,7 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 	}
 
 	Timer_Stop("Find Which Drm Files To Print");
-	Timer_Reduce("Find Which Drm Files To Print", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Find Which Drm Files To Print", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	Timer_Start("Read And Rearrange Drm Files");
 
@@ -2076,11 +2076,11 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 	}
 
 	Timer_Stop("Read And Rearrange Drm Files");
-	Timer_Reduce("Read And Rearrange Drm Files", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Read And Rearrange Drm Files", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	Timer_Start("Find Which Drm Files To Read");
 
-	pes_i_owe_grp_cnt = calloc(theGroupSize,sizeof(int32_t));
+	pes_i_owe_grp_cnt = (int32_t *)calloc(theGroupSize, sizeof(int32_t));
 
 	if (drmFileToOpen.step_to_start == 0) {
 
@@ -2110,11 +2110,11 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 
 	/* Find out which files I need to open */
 
-	pes_id_cumulative = calloc(total_pes_cnt,sizeof(int32_t));
+	pes_id_cumulative = (int32_t *)calloc(total_pes_cnt, sizeof(int32_t));
 
 	if ( myID == 0 ) {
-		sprintf(filename, "%s%s", theDrmOutputDir, "/part2/drm_file_index" );
-		if ( (fp = fopen(filename, "rb")) == NULL) {
+		sprintf(filename, "%s%s", theDrmOutputDir, "/part2/drm_file_index");
+		if ((fp = fopen(filename, "rb")) == NULL) {
 			fprintf(stderr, "Error opening %s\n", filename);
 		}
 
@@ -2128,7 +2128,7 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 	/* fill drm_file_to_read */
 
 	Timer_Stop("Find Which Drm Files To Read");
-	Timer_Reduce("Find Which Drm Files To Read", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Find Which Drm Files To Read", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 	Timer_Start("Locate where I am in file");
 
@@ -2221,7 +2221,7 @@ void rearrange_drm_files ( mesh_t  *myMesh, int32_t theGroupSize, int32_t myID )
 
 
 	Timer_Stop("Locate where I am in file");
-	Timer_Reduce("Locate where I am in file", MAX | MIN | AVERAGE , comm_solver);
+	Timer_Reduce("Locate where I am in file", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
 
 	/* Free allocated memory */
@@ -2847,7 +2847,7 @@ void drm_table_init(drmhash_t *drmTable, int32_t tableDim) {
 
 	int32_t i;
 
-	drmTable->drmBucketArray = calloc(tableDim, sizeof(drmbucket_t));
+	drmTable->drmBucketArray = (drmbucket_t *)calloc(tableDim, sizeof(drmbucket_t));
 	drmTable->tableCnt = 0;
 
 	for ( i = 0; i < tableDim; ++i ) {
@@ -2968,20 +2968,20 @@ void insert(int64_t nodeid, int32_t i, drmhash_t *drmTable, int32_t owner) {
 void insertAtFrontOfBucketList(drmbucketelem_t ** bucketList, int64_t nodeid,
 							   int32_t owner) {
 
-	drmbucketelem_t *new = malloc ( sizeof(drmbucketelem_t) );
+  drmbucketelem_t *new_ele = (drmbucketelem_t *)malloc(sizeof(drmbucketelem_t));
 
-	if ( new == NULL ) {
+	if ( new_ele == NULL ) {
 		fprintf( stderr, "Err allocing mem in insertAtFrontOfBucketList" );
 		MPI_Abort(MPI_COMM_WORLD, ERROR);
 		exit(1);
 	}
 
-	new->nodeid = nodeid;
+	new_ele->nodeid = nodeid;
 	if ( owner != NONE) {
-		new->owner = owner;
+		new_ele->owner = owner;
 	}
-	new->next = (*bucketList);
-	(*bucketList) = new;
+	new_ele->next = (*bucketList);
+	(*bucketList) = new_ele;
 
 }
 

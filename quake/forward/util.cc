@@ -914,11 +914,11 @@ int
 hu_parse_text( FILE* fp, const char* key, const char type, void* result )
 {
     switch (type) {
-    case 'i': return hu_config_get_int_req( fp, key, result );
-    case 'u': return hu_config_get_uint_req( fp, key, result );
-    case 'f': return hu_config_get_float_req( fp, key, result );
-    case 'd': return hu_config_get_double_req( fp, key, result );
-    case 's': return hu_config_get_string_unsafe(fp, key, HU_REQUIRED, result);
+    case 'i': return hu_config_get_int_req( fp, key, (int *)result );
+    case 'u': return hu_config_get_uint_req( fp, key, (unsigned int *)result );
+    case 'f': return hu_config_get_float_req( fp, key, (float *)result );
+    case 'd': return hu_config_get_double_req( fp, key, (double *)result );
+    case 's': return hu_config_get_string_unsafe(fp, key, HU_REQUIRED, (char *)result);
     default:
 	fputs( "parsetext: unknown type ", stderr );
 	fputc( type, stderr );

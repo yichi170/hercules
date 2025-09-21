@@ -1,6 +1,6 @@
 #include <mpi.h>
 
-enum TimerKind {NON_CUMULATIVE=1, MAX=2, MIN=4, AVERAGE=8};
+enum TimerKind { UNDEF_TIMERKIND=0, NON_CUMULATIVE=1, MAX=2, MIN=4, AVERAGE=8 };
 
 extern void     Timer_Start(const char* TimerName);
 extern void     Timer_Stop(const char* TimerName);

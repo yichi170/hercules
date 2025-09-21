@@ -41,7 +41,7 @@ typedef struct qvect2_t {
 
 typedef enum {
 
-  PART0 = 0, PART1, PART2
+  UNSET_DRM_PART = -1, PART0 = 0, PART1, PART2
 
 } drm_part_t;
 

@@ -805,7 +805,7 @@ print_slip_function (const char* filename)
   src.dt		   = theDeltaT;
   src.numberOfTimeSteps  = theNumberOfTimeSteps;
   src.delayTime	   = 0;
-  src.sourceFunctionType = theSourceFunctionType;
+  src.sourceFunctionType = (source_function_t)theSourceFunctionType;
   src.T0		   = theAverageRisetimeSec;
   src.maxSlip		   = 1;
 
@@ -1392,7 +1392,7 @@ static void update_point_source_srfh (ptsrc_t *pointSource, int32_t isource, UTM
   pointSource->dtfunction = theSourceDtArray[isource];
   pointSource->delayTime  = theSourceTinitArray[isource];
   pointSource->slipfundiscrete    = theSourceSlipFunArray[isource];
-  pointSource->sourceFunctionType = theSourceFunctionType;
+  pointSource->sourceFunctionType = (source_function_t)theSourceFunctionType;
 
 
   compute_source_function( pointSource );
@@ -2192,8 +2192,8 @@ static int  read_plane_source(FILE *fp, FILE *fpslip, FILE *fprake){
   /* Read slip and rake matrices */
   theExtendedColumns = cells_along_strike;
   theExtendedRows    = cells_down_dip;
-  theSlipMatrix = malloc( sizeof(double **) * theNumberOfTimeWindows);
-  theRakeMatrix = malloc( sizeof(double **) * theNumberOfTimeWindows);
+  theSlipMatrix = (double ***)malloc( sizeof(double **) * theNumberOfTimeWindows);
+  theRakeMatrix = (double ***)malloc( sizeof(double **) * theNumberOfTimeWindows);
 
   for ( iWindow=0; iWindow < theNumberOfTimeWindows; iWindow++){
     theSlipMatrix[iWindow] = dmatrix(0,theExtendedRows-1,0,
@@ -2313,18 +2313,18 @@ read_srfh_source ( FILE *fp, FILE *fpcoords, FILE *fparea, FILE *fpstrike,
     return -1;
   }
 
-  theSourceLonArray     = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceLatArray     = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceDepthArray   = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceAreaArray    = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceStrikeArray  = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceDipArray     = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceRakeArray    = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceSlipArray    = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceNt1Array     = malloc( sizeof( int )   * theNumberOfPointSources );
-  theSourceTinitArray   = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceDtArray      = malloc( sizeof( double) * theNumberOfPointSources );
-  theSourceSlipFunArray = malloc( sizeof( double* ) * theNumberOfPointSources );
+  theSourceLonArray     = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceLatArray     = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceDepthArray   = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceAreaArray    = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceStrikeArray  = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceDipArray     = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceRakeArray    = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceSlipArray    = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceNt1Array     = (int *)     malloc( sizeof(int)      * theNumberOfPointSources );
+  theSourceTinitArray   = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceDtArray      = (double *)  malloc( sizeof(double)   * theNumberOfPointSources );
+  theSourceSlipFunArray = (double **) malloc( sizeof(double *) * theNumberOfPointSources );
 
   if ( (theSourceLonArray    == NULL) || (theSourceLatArray     == NULL) ||
        (theSourceDepthArray  == NULL) || (theSourceStrikeArray  == NULL) ||
@@ -2364,10 +2364,10 @@ read_srfh_source ( FILE *fp, FILE *fpcoords, FILE *fparea, FILE *fpstrike,
     	theSourceDepthArray[iSrc] += point_elevation ( coords_aux.x[0], coords_aux.x[1] );
     }
 
-    theSourceSlipFunArray[iSrc]=malloc(sizeof(double)*theSourceNt1Array[iSrc]);
+    theSourceSlipFunArray[iSrc] = (double *)malloc(sizeof(double) * theSourceNt1Array[iSrc]);
 
     for ( iTime = 0; iTime < theSourceNt1Array[iSrc]; iTime++)
-      fscanf(fpslipfun," %lf ", &(theSourceSlipFunArray[iSrc][iTime]));
+      fscanf(fpslipfun, " %lf ", &(theSourceSlipFunArray[iSrc][iTime]));
   }
 
   for ( iSrc = 0; iSrc < theNumberOfPointSources - 1; iSrc++ ){
@@ -2680,7 +2680,7 @@ compute_myForces_planes(const char *physicsin, UTMZone_t* utmZone)
       pntSrc.strike = theExtendedStrikeDeg;
   }
 
-  pntSrc.sourceFunctionType = theSourceFunctionType;
+  pntSrc.sourceFunctionType = (source_function_t)theSourceFunctionType;
   pntSrc.T0 = theAverageRisetimeSec;
 
   pntSrc.displacement =
@@ -2733,7 +2733,7 @@ compute_myForces_planes(const char *physicsin, UTMZone_t* utmZone)
 
   /* Initialize the io */
   /* Array which indicates the loop a force will be written to a file */
-  myForcesCycle =  malloc( sizeof(int32_t) * myMesh->nharbored );
+  myForcesCycle =  (int32_t *) malloc( sizeof(int32_t) * myMesh->nharbored );
   for (iForce = 0 ; iForce < myMesh->nharbored; iForce++) {
       myForcesCycle[ iForce ] = -1;
   }
@@ -2742,7 +2742,7 @@ compute_myForces_planes(const char *physicsin, UTMZone_t* utmZone)
       = (char*)calloc( (2*ndsDip*ndsStrk / sizeof(char)) + 1, sizeof(char) );
 
   if (is_force_in_processor == NULL) {
-      fprintf( stderr,"Err allocating is_force_in_processor" );
+      fprintf( stderr, "Err allocating is_force_in_processor" );
       return -1;
   }
 
@@ -3184,7 +3184,7 @@ compute_myForces_point(const char* physicsin, UTMZone_t* utmZone)
     /* Array which indicates the cycle a force will written to a file in
      * this case is one cycle
      */
-    myForcesCycle = malloc (sizeof(int32_t) * (myMesh->nharbored));
+    myForcesCycle = (int32_t *) malloc (sizeof(int32_t) * (myMesh->nharbored));
     iForce = 0;
 
     for (iForce = 0 ; iForce < myMesh->nharbored; iForce++) {
@@ -3209,7 +3209,7 @@ compute_myForces_point(const char* physicsin, UTMZone_t* utmZone)
 
     pntSrc.dip		      = theSourceDipDeg;
     pntSrc.rake		      = theSourceRakeDeg;
-    pntSrc.sourceFunctionType = theSourceFunctionType;
+    pntSrc.sourceFunctionType = (source_function_t)theSourceFunctionType;
     pntSrc.T0		      = theAverageRisetimeSec;
     pntSrc.delayTime	      = 0;
     pntSrc.maxSlip	      = 1;
@@ -3325,7 +3325,7 @@ static int  compute_myForces_srfh(const char *physicsin, UTMZone_t* utmZone){
 
   /* Initialize the IO */
   /* Array which indicates the loop a force will be written to a file */
-  myForcesCycle =  malloc( sizeof(int32_t) * ( myMesh->nharbored ) );
+  myForcesCycle = (int32_t *) malloc( sizeof(int32_t) * ( myMesh->nharbored ) );
   for ( iForce = 0 ; iForce < myMesh->nharbored; iForce++ )
     myForcesCycle[ iForce ] = -1;
 
@@ -3759,7 +3759,7 @@ source_broadcast_parameters( void )
     /* this is an identity assigment on PE 0 */
     theNumberOfTimeSteps            = i_buf[0];
     theSourceIsFiltered             = i_buf[1];
-    theTypeOfSource	                = i_buf[2];
+    theTypeOfSource	                = (source_type_t)i_buf[2];
     theNumberOfPoles	            = i_buf[3];
     theSourceFunctionType           = i_buf[4];
     theNumberOfSRFHSourceTimeSteps  = i_buf[5];
@@ -3917,7 +3917,7 @@ static int source_init_parameters(const char* physicsin, const char *source_dire
 	return -1;
     }
 
-    theTypeOfSource = source_read_type( fpsrc );
+    theTypeOfSource = (source_type_t)source_read_type( fpsrc );
 
     if( read_common_all_formats( fpsrc ) == -1 ) {
 	return -1;
@@ -4030,7 +4030,7 @@ int compute_print_source(const char *physicsin, const char *source_directory_out
     theDomainY = numericsinformation.ylength;
     theDomainZ = numericsinformation.zlength;
 
-    myForces = calloc( myMesh->nharbored, sizeof(vector3D_t) );
+    myForces = (vector3D_t **)calloc( myMesh->nharbored, sizeof(vector3D_t) );
     if ( myForces == NULL ) {
 	fprintf(stderr, "Thread %d: quakesource: out of memory\n",myID);
 	ABORTEXIT;

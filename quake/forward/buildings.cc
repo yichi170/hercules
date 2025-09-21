@@ -75,7 +75,7 @@ typedef struct basenode_t {
 /*                             Global Variables                               */
 /* -------------------------------------------------------------------------- */
 
-static noyesflag_t  areBaseFixed = 0;
+static noyesflag_t  areBaseFixed = NO;
 static char         theBaseFixedDir[256];
 static char         theBaseFixedSufix[64];
 static double       theBaseFixedDT;
@@ -907,7 +907,7 @@ void bldgs_init ( int32_t myID, const char *parametersin )
     theSurfaceShift      = double_message[0];
     theMinOctSizeMeters  = double_message[1];
     theNumberOfBuildings = int_message[0];
-    areBaseFixed         = int_message[1];
+    areBaseFixed         = (noyesflag_t)int_message[1];
 	theNumberOfPushdowns = int_message[2];
 
     /* allocate table of properties for all other PEs */
@@ -1076,7 +1076,7 @@ buildings_initparameters ( const char *parametersin )
 	double *auxiliar;
 	char    consider_fixed_base[16];
 
-	noyesflag_t fixedbase = -1;
+	noyesflag_t fixedbase = UNSET;
 
 	/* Opens parametersin file */
 

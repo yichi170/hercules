@@ -557,17 +557,17 @@ void nonlinear_init( int32_t     myID,
     DRMYMax               = double_message[9];
     DRMDepth              = double_message[10];
 
-    theMaterialModel           = int_message[0];
+    theMaterialModel           = (materialmodel_t)int_message[0];
     thePropertiesCount         = int_message[1];
     theGeostaticFinalStep      = int_message[2];
-    thePlasticityModel         = int_message[3];
-    theApproxGeoState          = int_message[4];
+    thePlasticityModel         = (plasticitytype_t)int_message[3];
+    theApproxGeoState          = (noyesflag_t)int_message[4];
     theNonlinearFlag           = int_message[5];
-    theTensionCutoff           = int_message[6];
+    theTensionCutoff           = (noyesflag_t)int_message[6];
     theNoSubsteps              = int_message[7];
-    theSurfaceGroundwaterTable = int_message[8];
-    DRMActive                  = int_message[9];
-    whichDrmPart               = int_message[10];
+    theSurfaceGroundwaterTable = (noyesflag_t)int_message[8];
+    DRMActive                  = (noyesflag_t)int_message[9];
+    whichDrmPart               = (drm_part_t)int_message[10];
 
     /* allocate table of properties for all other PEs */
 
@@ -630,9 +630,9 @@ int32_t nonlinear_initparameters ( const char *parametersin,
 
     materialmodel_t      materialmodel;
     plasticitytype_t     plasticitytype;
-    noyesflag_t          approxgeostatic = -1, surf_groundwater_table = -1;
-    noyesflag_t          tensioncutoff = -1;
-    drm_part_t           drmPart = -1;
+    noyesflag_t          approxgeostatic = UNSET, surf_groundwater_table = UNSET;
+    noyesflag_t          tensioncutoff = UNSET;
+    drm_part_t           drmPart = UNSET_DRM_PART;
 
     /* Opens numericalin file */
     if ((fp = fopen(parametersin, "r")) == NULL) {

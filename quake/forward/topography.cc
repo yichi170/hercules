@@ -1271,7 +1271,7 @@ topography_initparameters (const char *parametersin, const char *topo_dir) {
     etreetype_t         etreetype;
     topometh_t          topo_method;
 
-    noyesflag_t         considerTopoNonlin = -1;
+    noyesflag_t         considerTopoNonlin = UNSET;
     noyesflag_t         TopoBKT = NO;
 
     /* Optional parameters */
@@ -1476,10 +1476,10 @@ void topo_init (int32_t myID, const char *parametersin, const char *theTopoDir) 
     ntp					 = int_message[1];
     np_ew			     = int_message[2];
     np_ns			     = int_message[3];
-    theEtreeType         = int_message[4];
-    theTopoMethod        = int_message[5];
-    theNonlinTopo_flag   = int_message[6];
-    theTopoBKT_flag      = int_message[7];
+    theEtreeType         = (etreetype_t)int_message[4];
+    theTopoMethod        = (topometh_t)int_message[5];
+    theNonlinTopo_flag   = (noyesflag_t)int_message[6];
+    theTopoBKT_flag      = (noyesflag_t)int_message[7];
 
     /* allocate table of properties for all other PEs */
     if (myID != 0) {

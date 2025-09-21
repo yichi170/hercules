@@ -148,7 +148,7 @@ void saveMeshCoordinatesForMatlab(mesh_t *myMesh, int32_t myID, const char *para
 		/* j is like a node id here */
 		j = myMesh->elemTable[i].lnid[0]; /* looking at first node of the element(at top) */
 
-		edata_temp = myMesh->elemTable[i].data;
+		edata_temp = (edata_t *)myMesh->elemTable[i].data;
 
 		/* these are  lower left  coordinates */
 		x_ticks = myMesh->nodeTable[j].x;

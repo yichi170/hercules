@@ -42,7 +42,7 @@ void  Timer_Start(const char* TimerName){
 	Timers[NumberOfTimersUsed].max     = 0;
 	Timers[NumberOfTimersUsed].min     = 0;
 	Timers[NumberOfTimersUsed].average = 0;
-	Timers[NumberOfTimersUsed].flags   = 0;
+	Timers[NumberOfTimersUsed].flags   = UNDEF_TIMERKIND;
 	Timers[NumberOfTimersUsed].running = 1;
 	Timers[NumberOfTimersUsed].starttime = MPI_Wtime();
 	NumberOfTimersUsed++;
@@ -88,7 +88,7 @@ void     Timer_Reset(const char* TimerName){
     Timers[timernum].max     = 0;
     Timers[timernum].min     = 0;
     Timers[timernum].average = 0;
-    Timers[timernum].flags   = 0;
+    Timers[timernum].flags   = UNDEF_TIMERKIND;
     Timers[timernum].running = 0;
     Timers[timernum].starttime=0;
 }
@@ -205,12 +205,12 @@ void     Timer_Reduce(const char* TimerName, enum TimerKind kind, MPI_Comm Commu
 
     if (kind & MIN){
 	MPI_Reduce (&Timers[timernum].elapsed, &Timers[timernum].min, 1, MPI_DOUBLE, MPI_MIN, 0, Communicator);
-	Timers[timernum].flags = Timers[timernum].flags | MIN;
+	Timers[timernum].flags = (TimerKind)(Timers[timernum].flags | MIN);
     }
 
     if (kind & MAX){
 	MPI_Reduce (&Timers[timernum].elapsed, &Timers[timernum].max, 1, MPI_DOUBLE, MPI_MAX, 0, Communicator);
-	Timers[timernum].flags = Timers[timernum].flags | MAX;
+	Timers[timernum].flags = (TimerKind)(Timers[timernum].flags | MAX);
     }
 
     if (kind & AVERAGE){
@@ -218,7 +218,7 @@ void     Timer_Reduce(const char* TimerName, enum TimerKind kind, MPI_Comm Commu
 	MPI_Comm_size(Communicator, &size);
 	MPI_Reduce (&Timers[timernum].elapsed, &Timers[timernum].average, 1, MPI_DOUBLE, MPI_SUM, 0, Communicator);
 	Timers[timernum].average = Timers[timernum].average / size;
-	Timers[timernum].flags = Timers[timernum].flags | AVERAGE;
+	Timers[timernum].flags = (TimerKind)(Timers[timernum].flags | AVERAGE);
     }
 
 }
