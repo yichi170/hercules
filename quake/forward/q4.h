@@ -28,8 +28,8 @@
 
 #include <stdio.h>
 #include "psolve.h"
-#include "etree.h"
 
+#include "etree.h"
 
 /**
  * q4_point: query a point (x, y, z) from the dataset of mesh (mep) and

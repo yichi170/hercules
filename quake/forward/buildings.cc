@@ -23,10 +23,16 @@
 #include <string.h>
 #include <math.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "cvm.h"
+#include "octor.h"
+#ifdef __cplusplus
+}
+#endif
 #include "psolve.h"
 #include "drm_planewaves.h"
-#include "octor.h"
 #include "buildings.h"
 #include "util.h"
 #include "quake_util.h"

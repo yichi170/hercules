@@ -43,10 +43,17 @@
 #include "util.h"
 #include "commutil.h"
 #include "timers.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "etree.h"
 #include "octor.h"
-#include "psolve.h"
 #include "cvm.h"
+#ifdef __cplusplus
+}
+#endif
+#include "psolve.h"
 #include "nrutila.h"
 #include "quakesource.h"
 #include "output.h"
