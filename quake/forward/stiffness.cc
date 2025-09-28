@@ -114,6 +114,16 @@ void stiffness_init(int32_t myID, mesh_t *myMesh) {
     linear_elements_mapping(myID, myMesh);
 }
 
+void stiffness_delete(int32_t myID) {
+  /* Free stiffness module memory */
+  free(myLinearElementsMapper);
+
+  /* Free device memory */
+  // TODO?
+
+  return;
+}
+
 
 /* -------------------------------------------------------------------------- */
 /*                       Stiffness Contribution Methods                       */
