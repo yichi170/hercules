@@ -4318,7 +4318,7 @@ static void solver_init() {
     }
   }
 
-    if (cudaMalloc((void**)&(Global.gpuData.forceDevice),
+  if (cudaMalloc((void**)&(Global.gpuData.forceDevice),
                  Global.myMesh->nharbored * sizeof(fvector_t)) != cudaSuccess) {
     fprintf(stderr, "Thread %d: Failed to allocate force memory\n",
             Global.myID);
@@ -5007,12 +5007,13 @@ static void solver_delete() {
   cudaFree(Global.gpuData.a1_kappaArrayDevice);
   cudaFree(Global.gpuData.shearVectorDevice);
   cudaFree(Global.gpuData.kappaVectorDevice);
+  cudaFree(Global.gpuData.mass_simpleArrayDevice);
   // cudaFree(Global.gpuData.matPropsDevice);
   for (int i = 0; i < 3; i++) {
     cudaFree(Global.gpuData.mass2_minusaMArrayDevice[i]);
     cudaFree(Global.gpuData.mass_minusaMArrayDevice[i]);
   }
-  cudaFree(Global.gpuData.mass_simpleArrayDevice);
+
   cudaFree(Global.mySolver->gpuDataDevice);
 
   /* Destroy streams */
@@ -5028,9 +5029,9 @@ static void solver_delete() {
   free(Global.mySolver->eTable);
   free(Global.mySolver->nTable);
 
-  free(Global.mySolver->tm1);
-  free(Global.mySolver->tm2);
-  free(Global.mySolver->force);
+  cudaFreeHost(Global.mySolver->tm1);
+  cudaFreeHost(Global.mySolver->tm2);
+  cudaFreeHost(Global.mySolver->force);
 
   if (Param.theTypeOfDamping >= BKT) {
     free(Global.mySolver->conv_shear_1);
