@@ -141,6 +141,12 @@ void stiffness_delete(int32_t myID) {
 void compute_addforce_conventional( mesh_t* myMesh, mysolver_t* mySolver, 
 				    fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8] )
 {
+    /* Use GPU kernel for conventional stiffness computation */
+    if (mySolver->gpu_spec != NULL) {
+        compute_addforce_conventional_gpu(myMesh, mySolver, theK1, theK2);
+        return;
+    }
+
     fvector_t localForce[8];
     int       i, j;
     int32_t   eindex;
@@ -199,6 +205,12 @@ void compute_addforce_conventional( mesh_t* myMesh, mysolver_t* mySolver,
  */
 void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
 {
+    /* Use GPU kernel for effective stiffness computation */
+    if (mySolver->gpu_spec != NULL) {
+        compute_addforce_effective_gpu(myMesh, mySolver);
+        return;
+    }
+
     /* \TODO use mu_and_lambda to compute first,second and third coefficients */
 
     fvector_t localForce[8];
@@ -508,3 +520,101 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
 /*     newU[22] = u[20]; */
 /*     newU[23] = u[23]; */
 /* } */
+
+/* -------------------------------------------------------------------------- */
+/*                         GPU Force Computation Functions                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GPU version of effective stiffness force computation
+ */
+void compute_addforce_effective_gpu(mesh_t* myMesh, mysolver_t* mySolver) {
+    int blocksize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].blocksize;
+    int gridsize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].gridsize;
+    
+    cudaGetLastError();
+    
+    kernelStiffnessCalcLocal<<<gridsize, blocksize, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
+        myMesh->lenum, mySolver->gpuDataDevice, myLinearElementsCount, 
+        mySolver->gpuData->myLinearElementsMapperDevice);
+    
+    cudaError_t cerror = cudaGetLastError();
+    if (cerror != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Stiffness kernel launch failed - %s\n", 
+                mySolver->myID, cudaGetErrorString(cerror));
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+    
+    mySolver->gpu_spec->numflops += 
+        kernel_flops_per_thread(FLOP_STIFFNESS_FORCE) * myLinearElementsCount;
+    mySolver->gpu_spec->numbytes += 
+        kernel_mem_per_thread(FLOP_STIFFNESS_FORCE) * myLinearElementsCount;
+}
+
+/**
+ * GPU version of conventional stiffness force computation
+ */
+void compute_addforce_conventional_gpu(mesh_t* myMesh, mysolver_t* mySolver, 
+                                       fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8]) {
+    /* For now, fall back to CPU implementation for conventional method */
+    /* TODO: Implement GPU kernel for conventional stiffness computation */
+    compute_addforce_conventional_cpu(myMesh, mySolver, theK1, theK2);
+}
+
+/**
+ * CPU fallback for conventional stiffness computation
+ */
+static void compute_addforce_conventional_cpu(mesh_t* myMesh, mysolver_t* mySolver, 
+                                           fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8]) {
+    fvector_t localForce[8];
+    int       i, j;
+    int32_t   eindex;
+    int32_t   lin_eindex;
+
+    /* loop on the number of elements */
+    for (lin_eindex = 0; lin_eindex < myLinearElementsCount; lin_eindex++) {
+
+        elem_t* elemp;
+        e_t*    ep;
+
+        eindex = myLinearElementsMapper[lin_eindex];
+        elemp  = &myMesh->elemTable[eindex];
+        ep     = &mySolver->eTable[eindex];
+
+        /* step 1: calculate the force due to the element stiffness */
+        memset( localForce, 0, 8 * sizeof(fvector_t) );
+
+        /* contribution by node j to node i */
+        for (i = 0; i < 8; i++)
+        {
+            fvector_t* toForce = &localForce[i];
+
+            for (j = 0; j < 8; j++)
+            {
+                int32_t    nodeJ  = elemp->lnid[j];
+                fvector_t* myDisp = mySolver->tm1 + nodeJ;
+
+                /*
+                 * contributions by the stiffnes/damping matrix
+                 * contribution by ( - deltaT_square * Ke * Ut )
+                 * But if myDisp is zero avoids multiplications
+                 */
+                if ( vector_is_all_zero( myDisp ) != 0 ) {
+                    MultAddMatVec( &theK1[i][j], myDisp, -ep->c1, toForce );
+                    MultAddMatVec( &theK2[i][j], myDisp, -ep->c2, toForce );
+                }
+            }
+        }
+
+        /* step 2: sum up my contribution to my vertex nodes */
+        for (i = 0; i < 8; i++) {
+            int32_t    lnid       = elemp->lnid[i];
+            fvector_t* nodalForce = mySolver->force + lnid;
+
+            nodalForce->f[0] += localForce[i].f[0];
+            nodalForce->f[1] += localForce[i].f[1];
+            nodalForce->f[2] += localForce[i].f[2];
+        }
+    } /* for all the elements */
+}

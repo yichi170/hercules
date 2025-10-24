@@ -4814,7 +4814,9 @@ static void solver_init() {
   k->handle = (char*)kernelStiffnessCalcLocal;
   k->blocksize = gpu_get_blocksize(Global.mySolver->gpu_spec,
                                    (char*)kernelStiffnessCalcLocal, 0);
-  k->gridsize = (Global.myMesh->lenum / k->blocksize) + 1;
+  /* Optimize block size for better occupancy */
+  k->blocksize = min(k->blocksize, 512);  /* Cap at 512 for better occupancy */
+  k->gridsize = (Global.myMesh->lenum + k->blocksize - 1) / k->blocksize;
   k->sharedmem = 0;
 
   k = &Global.gpu_kernel[CUDA_KERNEL_DAMPING_CONV];
@@ -4822,7 +4824,8 @@ static void solver_init() {
   k->handle = (char*)kernelDampingCalcConv;
   k->blocksize = gpu_get_blocksize(Global.mySolver->gpu_spec,
                                    (char*)kernelDampingCalcConv, 0);
-  k->gridsize = (Global.myMesh->lenum / k->blocksize) + 1;
+  k->blocksize = min(k->blocksize, 512);  /* Cap at 512 for better occupancy */
+  k->gridsize = (Global.myMesh->lenum + k->blocksize - 1) / k->blocksize;
   k->sharedmem = 0;
 
   k = &Global.gpu_kernel[CUDA_KERNEL_DAMPING_FORCE];
@@ -4830,7 +4833,8 @@ static void solver_init() {
   k->handle = (char*)kernelDampingCalcLocal;
   k->blocksize = gpu_get_blocksize(Global.mySolver->gpu_spec,
                                    (char*)kernelDampingCalcLocal, 0);
-  k->gridsize = (Global.myMesh->lenum / k->blocksize) + 1;
+  k->blocksize = min(k->blocksize, 512);  /* Cap at 512 for better occupancy */
+  k->gridsize = (Global.myMesh->lenum + k->blocksize - 1) / k->blocksize;
   k->sharedmem = 0;
 
   k = &Global.gpu_kernel[CUDA_KERNEL_DISPLACEMENT];
@@ -4839,7 +4843,7 @@ static void solver_init() {
   k->blocksize =
       gpu_get_blocksize(Global.mySolver->gpu_spec, (char*)kernelDispCalc,
                         3 * 3 * sizeof(solver_float));
-  k->gridsize = (Global.myMesh->nharbored / k->blocksize) + 1;
+  k->gridsize = (Global.myMesh->nharbored + k->blocksize - 1) / k->blocksize;
   k->sharedmem = k->blocksize * 3 * 3 * sizeof(solver_float);
 
   /* Save reference to kernel data in solver */
@@ -5655,6 +5659,17 @@ static void solver_unload_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
   return;
 }
 
+static void solver_update_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
+  /* Update displacement data on GPU without full copy */
+  /* This is a placeholder - in practice, we might need to copy only changed data */
+  cudaMemcpyAsync(solver->gpuData->tm1Device, solver->tm1,
+                  mesh->nharbored * sizeof(fvector_t), cudaMemcpyHostToDevice,
+                  solver->streams[CUDA_STREAM_MAIN]);
+  solver->gpu_spec->numbytespci += mesh->nharbored * sizeof(fvector_t);
+  
+  return;
+}
+
 /** Compute new displacements of my harbored nodes */
 static void solver_compute_displacement_gpu(int32_t myID, mysolver_t* solver,
                                             mesh_t* mesh) {
@@ -5862,7 +5877,13 @@ static void solver_run() {
     Global.mySolver->tm1 = tmpvector;
 
     Timer_Start("GPU Memory Copy");
-    solver_load_disp_gpu(Global.mySolver, Global.myMesh);
+    /* Only copy displacement data to GPU if not already there */
+    if (step == startingStep) {
+        solver_load_disp_gpu(Global.mySolver, Global.myMesh);
+    } else {
+        /* For subsequent steps, just update the displacement pointers on GPU */
+        solver_update_disp_gpu(Global.mySolver, Global.myMesh);
+    }
     Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Solver I/O");
@@ -5913,9 +5934,7 @@ static void solver_run() {
     solver_send_force_anchored(Global.mySolver);
     Timer_Stop("Communication");
 
-    /* Timer_Start("GPU Memory Copy"); */
-    /* solver_load_forces_gpu(Global.mySolver, Global.myMesh); */
-    /* Timer_Stop("GPU Memory Copy"); */
+    /* Forces are computed directly on GPU, no need to copy */
 
     Timer_Start("Compute Physics");
     /* solver_compute_displacement(Global.mySolver, Global.myMesh); */

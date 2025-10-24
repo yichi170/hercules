@@ -32,6 +32,9 @@ void stiffness_delete        (int32_t myID);
 void compute_addforce_conventional( mesh_t* myMesh, mysolver_t* mySolver, fmatrix_t (*theK1)[8],
 				    fmatrix_t (*theK2)[8] );
 void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver );
+void compute_addforce_effective_gpu( mesh_t* myMesh, mysolver_t* mySolver );
+void compute_addforce_conventional_gpu( mesh_t* myMesh, mysolver_t* mySolver, fmatrix_t (*theK1)[8],
+				        fmatrix_t (*theK2)[8] );
 /* void aTransposeU( fvector_t* un, double* atu ); */
 /* void firstVector( const double* atu, double* finalVector, double a, double c, double b ); */
 /* void firstVector_kappa( const double* atu, double* finalVector, double kappa); */
