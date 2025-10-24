@@ -496,6 +496,7 @@ void getGPUHardware(int32_t myID, int device, gpu_spec_t* gpuSpecs) {
   int i;
   const int kb = 1024;
   const int mb = kb * kb;
+  const long long gb = (long long)mb * mb;
 
   cudaDeviceProp props;
   memset(&props, 0, sizeof(cudaDeviceProp));
@@ -516,32 +517,25 @@ void getGPUHardware(int32_t myID, int device, gpu_spec_t* gpuSpecs) {
   gpuSpecs->warp_size = props.warpSize;
 
   /* TODO: Customize these parameters for compute capability */
-  gpuSpecs->warp_allocation_size = 4;
-  gpuSpecs->register_allocation_size = 256;
+  gpuSpecs->warp_allocation_size = 4; // original value: 4
+  gpuSpecs->register_allocation_size = 256; // original value: 256
 
-  /*
   if (myID == 0) {
-    cout << "GPU Device " << device << ": " << props.name
-         << ": " << props.major << "." << props.minor << endl;
-    cout << "  Global memory:   " << props.totalGlobalMem / mb
-         << "mb" << endl;
-    cout << "  Shared memory:   " << props.sharedMemPerBlock / kb
-         << "kb" << endl;
-    cout << "  Constant memory: " << props.totalConstMem / kb << "kb" << endl;
-    cout << "  Block registers: " << props.regsPerBlock << endl << endl;
+    printf("\nGPU Device %d: %s: %d.%d\n", device, props.name, props.major, props.minor);
+    printf("  Global memory (HBM 3):   %lu mb (%lu gb)\n",
+           props.totalGlobalMem / mb, (long long)props.totalGlobalMem / gb);
+    printf("  Shared memory:           %lu kb\n", props.sharedMemPerBlock / kb);
+    printf("  Constant memory:         %lu kb\n", props.totalConstMem / kb);
+    printf("  Block registers: %d\n\n", props.regsPerBlock);
 
-    cout << "  Warp size:         " << props.warpSize << endl;
-    cout << "  Threads per block: " << props.maxThreadsPerBlock << endl;
-    cout << "  Max block dimensions: [ " << props.maxThreadsDim[0]
-         << ", " << props.maxThreadsDim[1]  << ", "
-         << props.maxThreadsDim[2] << " ]" << endl;
-    cout << "  Max grid dimensions:  [ " << props.maxGridSize[0] << ", "
-         << props.maxGridSize[1]  << ", " << props.maxGridSize[2] << " ]"
-         << endl;
-    cout << "  Registers per block: " << props.regsPerBlock << endl;
-    cout << endl;
+    printf("  Warp size:         %d\n", props.warpSize);
+    printf("  Threads per block: %d\n", props.maxThreadsPerBlock);
+    printf("  Max block dimensions: [ %d, %d, %d ]\n",
+           props.maxThreadsDim[0], props.maxThreadsDim[1], props.maxThreadsDim[2]);
+    printf("  Max grid dimensions:  [ %d, %d, %d ]\n",
+           props.maxGridSize[0], props.maxGridSize[1], props.maxGridSize[2]);
+    printf("  Registers per block: %d\n\n", props.regsPerBlock);
   }
-  */
 }
 
 static inline int monitor_print(const char* format, ...) {
@@ -5322,6 +5316,33 @@ static void solver_output_stations(int step) {
   }
 }
 
+static void solver_reset_gpu(mysolver_t* solver, mesh_t* mesh) {
+  fvector_t* tmp;
+
+  /* Swap displacements to prepare for new time step */
+  tmp = solver->gpuData->tm2Device;
+  solver->gpuData->tm2Device = solver->gpuData->tm1Device;
+  solver->gpuData->tm1Device = tmp;
+
+  /* Update data structure on device */
+  cudaMemcpyAsync(solver->gpuDataDevice, solver->gpuData, sizeof(gpu_data_t),
+                  cudaMemcpyHostToDevice, solver->streams[CUDA_STREAM_MAIN]);
+  solver->gpu_spec->numbytespci += sizeof(gpu_data_t);
+
+  /* Reset forces */
+  cudaMemsetAsync(Global.gpuData.forceDevice, 0,
+                  Global.myMesh->nharbored * sizeof(fvector_t),
+                  solver->streams[CUDA_STREAM_MAIN]);
+
+  /* Pre-calculate data for next time step */
+  // solver_precalc_gpu(solver, mesh);
+
+  /* Uncomment for timing tests */
+  // cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  return;
+}
+
 /**
  * Calculate the nonlinear entities necessary for the next step computation
  * of force correction.
@@ -5712,11 +5733,11 @@ static void solver_adjust_displacement(mysolver_t* solver) {
 static void solver_send_displacement_dangling(mysolver_t* solver) {
   //    HU_COND_GLOBAL_BARRIER( Param.theTimingBarriersFlag );
 
-  Timer_Start("4th schadule send data (sharing)");
+  Timer_Start("4th schedule send data (sharing)");
   schedule_senddata(Global.mySolver->dn_sched, Global.mySolver->tm2,
                     sizeof(fvector_t) / sizeof(solver_float), SHARING,
                     DN_DISP_MSG);
-  Timer_Stop("4th schadule send data (sharing)");
+  Timer_Stop("4th schedule send data (sharing)");
 }
 
 /**
@@ -5793,7 +5814,7 @@ static void solver_run_collect_timers(void) {
                (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
   Timer_Reduce("2nd compute adjust (assignment)",
                (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
-  Timer_Reduce("4th schadule send data (sharing)",
+  Timer_Reduce("4th schedule send data (sharing)",
                (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 
   Timer_Reduce("Solver I/O", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
@@ -5839,6 +5860,10 @@ static void solver_run() {
     tmpvector = Global.mySolver->tm2;
     Global.mySolver->tm2 = Global.mySolver->tm1;
     Global.mySolver->tm1 = tmpvector;
+
+    Timer_Start("GPU Memory Copy");
+    solver_load_disp_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Solver I/O");
     solver_write_checkpoint(step, startingStep);
@@ -5888,9 +5913,9 @@ static void solver_run() {
     solver_send_force_anchored(Global.mySolver);
     Timer_Stop("Communication");
 
-    Timer_Start("GPU Memory Copy");
-    solver_load_forces_gpu(Global.mySolver, Global.myMesh);
-    Timer_Stop("GPU Memory Copy");
+    /* Timer_Start("GPU Memory Copy"); */
+    /* solver_load_forces_gpu(Global.mySolver, Global.myMesh); */
+    /* Timer_Stop("GPU Memory Copy"); */
 
     Timer_Start("Compute Physics");
     /* solver_compute_displacement(Global.mySolver, Global.myMesh); */
@@ -5902,6 +5927,10 @@ static void solver_run() {
 
     Timer_Start("GPU Memory Copy");
     solver_unload_disp_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("GPU Memory Copy");
+
+    Timer_Start("GPU Memory Copy");
+    solver_reset_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Communication");
@@ -7770,11 +7799,11 @@ static void print_timing_stat() {
       Timer_Value("2nd compute adjust (assignment)", MAX),
       Timer_Value("2nd compute adjust (assignment)", MIN));
   printf(
-      "    4th schadule send data          : %.2f (Average)   %.2f (Max) %.2f "
+      "    4th schedule send data          : %.2f (Average)   %.2f (Max) %.2f "
       "(Min) seconds\n",
-      Timer_Value("4th schadule send data (sharing)", AVERAGE),
-      Timer_Value("4th schadule send data (sharing)", MAX),
-      Timer_Value("4th schadule send data (sharing)", MIN));
+      Timer_Value("4th schedule send data (sharing)", AVERAGE),
+      Timer_Value("4th schedule send data (sharing)", MAX),
+      Timer_Value("4th schedule send data (sharing)", MIN));
   printf("    IO\n");
 
   if (Timer_Exists("Solver drm output")) {
