@@ -492,6 +492,9 @@ void mu_and_lambda(double *theMu, double *theLambda, edata_t *edata, int32_t ein
  */
 int32_t search_point( vector3D_t point, octant_t **octant );
 
+/* GPU kernel launch functions */
+void solver_launch_stiffness_kernel_gpu(mesh_t* myMesh, mysolver_t* mySolver);
+void solver_launch_damping_kernels_gpu(mesh_t* myMesh, mysolver_t* mySolver);
 
 #ifdef __cplusplus
 }

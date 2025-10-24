@@ -1690,45 +1690,7 @@ void BKT_TU_transf( double theFreq, double theDeltaT, double theDeltaTSquared, d
  * GPU version of damping force computation
  */
 void damping_addforce_gpu(mesh_t *myMesh, mysolver_t *mySolver, fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8]) {
-    /* Launch damping convolution kernel first */
-    int blocksize_conv = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].blocksize;
-    int gridsize_conv = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].gridsize;
-    
-    cudaGetLastError();
-    
-    kernelDampingCalcConv<<<gridsize_conv, blocksize_conv, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
-        myMesh->lenum, myMesh->lenum * 8, mySolver->gpuDataDevice, 
-        2. * M_PI * Param.theFreq * Param.theDeltaT);
-    
-    cudaError_t cerror = cudaGetLastError();
-    if (cerror != cudaSuccess) {
-        fprintf(stderr, "Thread %d: Damping conv kernel launch failed - %s\n", 
-                mySolver->myID, cudaGetErrorString(cerror));
-        MPI_Abort(MPI_COMM_WORLD, ERROR);
-        exit(1);
-    }
-    
-    /* Launch damping force kernel */
-    int blocksize_force = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].blocksize;
-    int gridsize_force = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].gridsize;
-    
-    cudaGetLastError();
-    
-    kernelDampingCalcLocal<<<gridsize_force, blocksize_force, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
-        myMesh->lenum, mySolver->gpuDataDevice);
-    
-    cerror = cudaGetLastError();
-    if (cerror != cudaSuccess) {
-        fprintf(stderr, "Thread %d: Damping force kernel launch failed - %s\n", 
-                mySolver->myID, cudaGetErrorString(cerror));
-        MPI_Abort(MPI_COMM_WORLD, ERROR);
-        exit(1);
-    }
-    
-    /* Update performance counters */
-    mySolver->gpu_spec->numflops += 
-        (kernel_flops_per_thread(FLOP_DAMPING_CONV) + kernel_flops_per_thread(FLOP_DAMPING_FORCE)) * myMesh->lenum;
-    mySolver->gpu_spec->numbytes += 
-        (kernel_mem_per_thread(FLOP_DAMPING_CONV) + kernel_mem_per_thread(FLOP_DAMPING_FORCE)) * myMesh->lenum;
+    /* Call the GPU kernel launch function from psolve.cu */
+    solver_launch_damping_kernels_gpu(myMesh, mySolver);
 }
 

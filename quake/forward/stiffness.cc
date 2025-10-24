@@ -22,6 +22,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <cuda_runtime.h>
+#include <cuda.h>
 
 #include "psolve.h"
 #include "nonlinear.h" //NEEDS TO BE HERE FOR NONLINEAR TO RUN
@@ -529,27 +531,8 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
  * GPU version of effective stiffness force computation
  */
 void compute_addforce_effective_gpu(mesh_t* myMesh, mysolver_t* mySolver) {
-    int blocksize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].blocksize;
-    int gridsize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].gridsize;
-    
-    cudaGetLastError();
-    
-    kernelStiffnessCalcLocal<<<gridsize, blocksize, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
-        myMesh->lenum, mySolver->gpuDataDevice, myLinearElementsCount, 
-        mySolver->gpuData->myLinearElementsMapperDevice);
-    
-    cudaError_t cerror = cudaGetLastError();
-    if (cerror != cudaSuccess) {
-        fprintf(stderr, "Thread %d: Stiffness kernel launch failed - %s\n", 
-                mySolver->myID, cudaGetErrorString(cerror));
-        MPI_Abort(MPI_COMM_WORLD, ERROR);
-        exit(1);
-    }
-    
-    mySolver->gpu_spec->numflops += 
-        kernel_flops_per_thread(FLOP_STIFFNESS_FORCE) * myLinearElementsCount;
-    mySolver->gpu_spec->numbytes += 
-        kernel_mem_per_thread(FLOP_STIFFNESS_FORCE) * myLinearElementsCount;
+    /* Call the GPU kernel launch function from psolve.cu */
+    solver_launch_stiffness_kernel_gpu(myMesh, mySolver);
 }
 
 /**
@@ -559,13 +542,13 @@ void compute_addforce_conventional_gpu(mesh_t* myMesh, mysolver_t* mySolver,
                                        fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8]) {
     /* For now, fall back to CPU implementation for conventional method */
     /* TODO: Implement GPU kernel for conventional stiffness computation */
-    compute_addforce_conventional_cpu(myMesh, mySolver, theK1, theK2);
+    compute_addforce_conventional_cpu_fallback(myMesh, mySolver, theK1, theK2);
 }
 
 /**
  * CPU fallback for conventional stiffness computation
  */
-static void compute_addforce_conventional_cpu(mesh_t* myMesh, mysolver_t* mySolver, 
+static void compute_addforce_conventional_cpu_fallback(mesh_t* myMesh, mysolver_t* mySolver, 
                                            fmatrix_t (*theK1)[8], fmatrix_t (*theK2)[8]) {
     fvector_t localForce[8];
     int       i, j;

@@ -5670,6 +5670,74 @@ static void solver_update_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
   return;
 }
 
+/* GPU kernel launch functions for force computation */
+static void solver_launch_stiffness_kernel_gpu(mesh_t* myMesh, mysolver_t* mySolver) {
+    int blocksize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].blocksize;
+    int gridsize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].gridsize;
+    
+    cudaGetLastError();
+    
+    kernelStiffnessCalcLocal<<<gridsize, blocksize, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
+        myMesh->lenum, mySolver->gpuDataDevice, myLinearElementsCount, 
+        mySolver->gpuData->myLinearElementsMapperDevice);
+    
+    cudaError_t cerror = cudaGetLastError();
+    if (cerror != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Stiffness kernel launch failed - %s\n", 
+                Global.myID, cudaGetErrorString(cerror));
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+    
+    mySolver->gpu_spec->numflops += 
+        kernel_flops_per_thread(FLOP_STIFFNESS_KERNEL) * myLinearElementsCount;
+    mySolver->gpu_spec->numbytes += 
+        kernel_mem_per_thread(FLOP_STIFFNESS_KERNEL) * myLinearElementsCount;
+}
+
+static void solver_launch_damping_kernels_gpu(mesh_t* myMesh, mysolver_t* mySolver) {
+    /* Launch damping convolution kernel first */
+    int blocksize_conv = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].blocksize;
+    int gridsize_conv = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].gridsize;
+    
+    cudaGetLastError();
+    
+    kernelDampingCalcConv<<<gridsize_conv, blocksize_conv, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
+        myMesh->lenum, myMesh->lenum * 8, mySolver->gpuDataDevice, 
+        2. * M_PI * Param.theFreq * Param.theDeltaT);
+    
+    cudaError_t cerror = cudaGetLastError();
+    if (cerror != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Damping conv kernel launch failed - %s\n", 
+                Global.myID, cudaGetErrorString(cerror));
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+    
+    /* Launch damping force kernel */
+    int blocksize_force = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].blocksize;
+    int gridsize_force = mySolver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].gridsize;
+    
+    cudaGetLastError();
+    
+    kernelDampingCalcLocal<<<gridsize_force, blocksize_force, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
+        myMesh->lenum, mySolver->gpuDataDevice);
+    
+    cerror = cudaGetLastError();
+    if (cerror != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Damping force kernel launch failed - %s\n", 
+                Global.myID, cudaGetErrorString(cerror));
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+    
+    /* Update performance counters */
+    mySolver->gpu_spec->numflops += 
+        (kernel_flops_per_thread(FLOP_CALCCONV_KERNEL) + kernel_flops_per_thread(FLOP_DAMPING_KERNEL)) * myMesh->lenum;
+    mySolver->gpu_spec->numbytes += 
+        (kernel_mem_per_thread(FLOP_CALCCONV_KERNEL) + kernel_mem_per_thread(FLOP_DAMPING_KERNEL)) * myMesh->lenum;
+}
+
 /** Compute new displacements of my harbored nodes */
 static void solver_compute_displacement_gpu(int32_t myID, mysolver_t* solver,
                                             mesh_t* mesh) {
