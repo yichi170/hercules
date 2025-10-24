@@ -70,6 +70,10 @@ extern "C" {
 #include "kernel.h"
 
 #include "topography.h"
+
+/* External variables from stiffness.cc and damping.cc */
+extern int32_t myLinearElementsCount;
+extern int32_t *myLinearElementsMapper;
 #include "drm_planewaves.h"
 #include "basin.h"
 
@@ -4371,6 +4375,14 @@ static void solver_init() {
     exit(1);
   }
 
+  if (cudaMalloc((void**)&(Global.gpuData.myLinearElementsMapperDevice),
+                 myLinearElementsCount * sizeof(int32_t)) != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Failed to allocate myLinearElementsMapper device memory\n",
+            Global.myID);
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+
   if (cudaMalloc((void**)&(Global.gpuData.g0_shearArrayDevice),
                  Global.myMesh->lenum * sizeof(double)) != cudaSuccess) {
     fprintf(stderr, "Thread %d: Failed to allocate g0 shear array memory\n",
@@ -4491,6 +4503,9 @@ static void solver_init() {
 
   Global.gpuData.nharbored = Global.myMesh->nharbored;
   Global.gpuData.lenum = Global.myMesh->lenum;
+  
+  /* Initialize linear elements data */
+  Global.gpuData.myLinearElementsCount = myLinearElementsCount;
 
   /* Temporary structure of arrays */
   double* c1Array = (double*)malloc(Global.myMesh->lenum * sizeof(double));
@@ -4598,6 +4613,14 @@ static void solver_init() {
                  Global.myMesh->lenum * 8 * sizeof(int32_t),
                  cudaMemcpyHostToDevice) != cudaSuccess) {
     fprintf(stderr, "Thread %d: Failed to copy lnid array\n", Global.myID);
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+
+  if (cudaMemcpy(Global.gpuData.myLinearElementsMapperDevice, myLinearElementsMapper,
+                 myLinearElementsCount * sizeof(int32_t),
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Failed to copy myLinearElementsMapper array\n", Global.myID);
     MPI_Abort(MPI_COMM_WORLD, ERROR);
     exit(1);
   }
@@ -5678,7 +5701,7 @@ static void solver_launch_stiffness_kernel_gpu(mesh_t* myMesh, mysolver_t* mySol
     cudaGetLastError();
     
     kernelStiffnessCalcLocal<<<gridsize, blocksize, 0, mySolver->streams[CUDA_STREAM_MAIN]>>>(
-        myMesh->lenum, mySolver->gpuDataDevice, myLinearElementsCount, 
+        myMesh->lenum, mySolver->gpuDataDevice, mySolver->gpuData->myLinearElementsCount, 
         mySolver->gpuData->myLinearElementsMapperDevice);
     
     cudaError_t cerror = cudaGetLastError();
@@ -5690,9 +5713,9 @@ static void solver_launch_stiffness_kernel_gpu(mesh_t* myMesh, mysolver_t* mySol
     }
     
     mySolver->gpu_spec->numflops += 
-        kernel_flops_per_thread(FLOP_STIFFNESS_KERNEL) * myLinearElementsCount;
+        kernel_flops_per_thread(FLOP_STIFFNESS_KERNEL) * mySolver->gpuData->myLinearElementsCount;
     mySolver->gpu_spec->numbytes += 
-        kernel_mem_per_thread(FLOP_STIFFNESS_KERNEL) * myLinearElementsCount;
+        kernel_mem_per_thread(FLOP_STIFFNESS_KERNEL) * mySolver->gpuData->myLinearElementsCount;
 }
 
 static void solver_launch_damping_kernels_gpu(mesh_t* myMesh, mysolver_t* mySolver) {

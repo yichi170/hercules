@@ -373,6 +373,9 @@ typedef struct gpu_data_t {
     fvector_t*   shearVectorDevice;
     fvector_t*   kappaVectorDevice;
     //edata_t*     matPropsDevice;
+    
+    int32_t      myLinearElementsCount;
+    int32_t*     myLinearElementsMapperDevice;
 
 } gpu_data_t;
 
