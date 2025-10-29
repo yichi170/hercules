@@ -225,11 +225,11 @@ void kernelStiffnessCalcLocal(int32_t lenum,
       const __restrict__ fvector_t *tm1Disp = gpuData->tm1Device + *lnid;
 
       localForce[i].f[0] = tm1Disp->f[0];
-      do_contrib = (fabs( localForce[i].f[0] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
+      do_contrib = ( fabs(localForce[i].f[0]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
       localForce[i].f[1] = tm1Disp->f[1];
-      do_contrib = (fabs( localForce[i].f[1] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
+      do_contrib = ( fabs(localForce[i].f[1]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
       localForce[i].f[2] = tm1Disp->f[2];
-      do_contrib = (fabs( localForce[i].f[2] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
+      do_contrib = ( fabs(localForce[i].f[2]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
 
       lnid += lenum;
     }
