@@ -33,6 +33,9 @@
 #include "cvm.h"
 #include "topography.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 
 
 /* -------------------------------------------------------------------------- */
@@ -41,6 +44,7 @@
 
 static int32_t  myLinearElementsCount;
 static int32_t *myLinearElementsMapper;
+static int32_t *myLinearElementsMapperDevice;
 
 /* -------------------------------------------------------------------------- */
 /*                      Initialization of parameters for
@@ -56,14 +60,13 @@ void linear_elements_count(int32_t myID, mesh_t *myMesh) {
     int32_t count = 0;
 
     for (eindex = 0; eindex < myMesh->lenum; eindex++) {
-
         if ( ( isThisElementNonLinear(myMesh, eindex) == NO ) &&
         	 ( BelongstoTopography   (myMesh, eindex) == NO )  ) {
             count++;
         }
     }
 
-    if ( count > myMesh-> lenum ) {
+    if ( count > myMesh->lenum ) {
         fprintf(stderr,"Thread %d: linear_elements_count: "
                 "more elements than expected\n", myID);
         MPI_Abort(MPI_COMM_WORLD, ERROR);
@@ -85,11 +88,10 @@ void linear_elements_mapping(int32_t myID, mesh_t *myMesh) {
     int32_t eindex;
     int32_t count = 0;
 
+    // same as myLinearElementsMapper = malloc(sizeof(int32_t) * myLinearElementsCount);
     XMALLOC_VAR_N(myLinearElementsMapper, int32_t, myLinearElementsCount);
 
     for (eindex = 0; eindex < myMesh->lenum; eindex++) {
-
-
         if ( ( isThisElementNonLinear(myMesh, eindex) == NO ) &&
         	 ( BelongstoTopography(myMesh, eindex)    == NO ) ) {
             myLinearElementsMapper[count] = eindex;
@@ -108,10 +110,31 @@ void linear_elements_mapping(int32_t myID, mesh_t *myMesh) {
 }
 
 
-void stiffness_init(int32_t myID, mesh_t *myMesh) {
+void stiffness_init(int32_t myID, mesh_t *myMesh, mysolver_t* mySolver) {
 
     linear_elements_count(myID, myMesh);
     linear_elements_mapping(myID, myMesh);
+
+    /* Allocate device memory */
+    if (cudaMalloc((void**)&myLinearElementsMapperDevice,
+		   myLinearElementsCount * sizeof(int32_t)) != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Failed to allocate mapper memory\n", myID);
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+
+    /* Copy linear element mapper to device */
+    if (cudaMemcpy(myLinearElementsMapperDevice, myLinearElementsMapper,
+		   myLinearElementsCount * sizeof(int32_t),
+		   cudaMemcpyHostToDevice) != cudaSuccess) {
+        fprintf(stderr, "Thread %d: Failed to copy mapper to device - %s\n",
+		myID, cudaGetErrorString(cudaGetLastError()));
+        MPI_Abort(MPI_COMM_WORLD, ERROR);
+        exit(1);
+    }
+    mySolver->gpu_spec->numbytespci += myLinearElementsCount * sizeof(int32_t);
+
+    return;
 }
 
 void stiffness_delete(int32_t myID) {
@@ -119,7 +142,7 @@ void stiffness_delete(int32_t myID) {
   free(myLinearElementsMapper);
 
   /* Free device memory */
-  // TODO?
+  cudaFree(myLinearElementsMapperDevice);
 
   return;
 }
@@ -209,9 +232,14 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
 
     /* loop on the number of elements */
     for (lin_eindex = 0; lin_eindex < myLinearElementsCount; lin_eindex++) {
-
+        /* typedef struct elem_t {                                        */
+        /*   int64_t geid;          // Global element id                  */
+        /*   int32_t lnid[8];       // Local node ids                     */
+        /*   int8_t level;          // Level of the corresponding octants */
+        /*   void *data;            // Application-specific data          */
+        /* } elem_t;                                                      */
         elem_t* elemp;
-        e_t*    ep;
+        e_t*    ep;                          // struct e_t { double c1, c2, c3, c4; };
 
         eindex = myLinearElementsMapper[lin_eindex];
         elemp  = &myMesh->elemTable[eindex];
@@ -240,7 +268,6 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
 
         /* Coefficients for new stiffness matrix calculation */
         if (vector_is_zero( curDisp ) != 0) {
-
             double first_coeff  = -0.5625 * (ep->c2 + 2 * ep->c1);
             double second_coeff = -0.5625 * (ep->c2);
             double third_coeff  = -0.5625 * (ep->c1);
@@ -254,7 +281,6 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
         }
 
         for (i = 0; i < 8; i++) {
-
             int32_t lnid          = elemp->lnid[i];
             fvector_t* nodalForce = mySolver->force + lnid;
 
@@ -265,6 +291,40 @@ void compute_addforce_effective( mesh_t* myMesh, mysolver_t* mySolver )
     } /* for all the elements */
 }
 
+/**
+ * Compute and add the force due to the element stiffness matrices with
+   the effective method.
+ */
+void compute_addforce_effective_gpu( int32_t myID,
+                                     mesh_t* myMesh,
+                                     mysolver_t* mySolver )
+{
+  /* Note that this executes for all elements. Threads for non-linear
+     elements will exit immediately */
+  int blocksize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].blocksize;
+  int gridsize = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].gridsize;
+  int sharedmem = mySolver->gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].sharedmem;
+
+  cudaGetLastError();
+  kernelStiffnessCalcLocal<<<gridsize, blocksize, sharedmem, mySolver->streams[CUDA_STREAM_MAIN]>>>(myMesh->lenum, mySolver->gpuDataDevice, myLinearElementsCount, myLinearElementsMapperDevice);
+
+  cudaError_t cerror = cudaGetLastError();
+  if (cerror != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Calc stiffness local kernel - %s\n", myID,
+            cudaGetErrorString(cerror));
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+
+  mySolver->gpu_spec->numflops += kernel_flops_per_thread(FLOP_STIFFNESS_KERNEL) * myMesh->lenum;
+
+  mySolver->gpu_spec->numbytes += kernel_mem_per_thread(FLOP_STIFFNESS_KERNEL) * myMesh->lenum;
+
+  /* Uncomment for timing tests */
+  //cudaStreamSynchronize(mySolver->streams[CUDA_STREAM_MAIN]);
+
+  return;
+}
 
 /* -------------------------------------------------------------------------- */
 /*                         Efficient Method Utilities                         */

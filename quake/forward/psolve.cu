@@ -5418,7 +5418,8 @@ static void solver_compute_force_stiffness(mysolver_t* solver, mesh_t* mesh,
   Timer_Start("Compute addforces e");
   if ((Param.theTypeOfDamping < BKT)) {
     if (Param.theStiffness == EFFECTIVE) {
-      compute_addforce_effective(mesh, solver);
+      /* compute_addforce_effective(mesh, solver); */
+      compute_addforce_effective_gpu(Global.myID, mesh, solver);
     } else if (Param.theStiffness == CONVENTIONAL) {
       compute_addforce_conventional(mesh, solver, k1, k2);
     }
@@ -5678,6 +5679,42 @@ static void solver_unload_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
   return;
 }
 
+static void solver_wait_physics_gpu(mysolver_t* solver, mesh_t* mesh) {
+  lnid_t nindex;
+
+  /* Copy tm2 to tm3 for accelerations */
+  if (Param.printStationAccelerations == YES) {
+    /* Save tm3 for accelerations */
+    for (nindex = 0; nindex < mesh->nharbored; nindex++) {
+      fvector_t* tm2Disp = solver->tm2 + nindex;
+      fvector_t* tm3Disp = solver->tm3 + nindex;
+
+      tm3Disp->f[0] = tm2Disp->f[0];
+      tm3Disp->f[1] = tm2Disp->f[1];
+      tm3Disp->f[2] = tm2Disp->f[2];
+
+    } /* for (nindex ...): all my harbored nodes */
+  }
+
+  /* Wait for the appropriate physics calculation to complete */
+  if (Param.theTypeOfDamping != BKT) {
+    if (Param.theStiffness == EFFECTIVE) {
+      Timer_Start("Compute addforces e");
+      /* Uncomment for timing tests */
+      cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+      Timer_Stop("Compute addforces e");
+    }
+
+  } else {
+    Timer_Start("Damping addforce");
+    /* Uncomment for timing tests */
+    cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+    Timer_Stop("Damping addforce");
+  }
+
+  return;
+}
+
 /** Compute new displacements of my harbored nodes */
 static void solver_compute_displacement_gpu(int32_t myID, mysolver_t* solver,
                                             mesh_t* mesh) {
@@ -5896,6 +5933,13 @@ static void solver_run() {
     solver_load_disp_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("GPU Memory Copy");
 
+    Timer_Start("Compute Physics");
+    solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
+                                   Global.theK2);
+    solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
+                                 Global.theK2);
+    Timer_Stop("Compute Physics");
+
     Timer_Start("Solver I/O");
     solver_write_checkpoint(step, startingStep);
     solver_update_status(step, startingStep);
@@ -5910,7 +5954,12 @@ static void solver_run() {
                                      Param.theTotalSteps);
     Timer_Stop("Solver I/O");
 
+    Timer_Start("GPU Memory Copy");
+    solver_unload_forces_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("GPU Memory Copy");
+
     Timer_Start("Compute Physics");
+    solver_wait_physics_gpu(Global.mySolver, Global.myMesh);
     solver_nonlinear_state(Global.mySolver, Global.myMesh, Global.theK1,
                            Global.theK2, step);
     solver_compute_force_source(step);
@@ -5923,10 +5972,10 @@ static void solver_run() {
 
     solver_compute_force_topography(Global.mySolver, Global.myMesh,
                                     Param.theDeltaTSquared);
-    solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
-                                   Global.theK2);
-    solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
-                                 Global.theK2);
+    /* solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1, */
+    /*                                Global.theK2); */
+    /* solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1, */
+    /*                              Global.theK2); */
     solver_compute_force_gravity(Global.mySolver, Global.myMesh, step);
     solver_compute_force_nonlinear(Global.mySolver, Global.myMesh,
                                    Param.theDeltaTSquared);
@@ -9734,7 +9783,9 @@ int main(int argc, char** argv) {
   if (Param.theTypeOfDamping < BKT)
     stiffness_init(
         Global.myID,
-        Global.myMesh);  // initialize linear elements only for Rayleigh damping
+        Global.myMesh,
+        Global.mySolver);
+  // initialize linear elements only for Rayleigh damping
   else
     damp_init(Global.myID, Global.myMesh);
 

@@ -99,6 +99,9 @@ psolve.o: psolve.cu psolve.h output.h quakesource.h nonlinear.h io_planes.h \
 
 quakesource.o: quakesource.cc quakesource.h psolve.h
 
+stiffness.o: stiffness.cu stiffness.o
+	$(NVCC) $(CPPFLAGS) $(NVFLAGS) -c $< -o $@
+
 kernel.o: kernel.cu kernel.h
 	$(NVCC) $(CPPFLAGS) $(NVFLAGS) -c $< -o $@
 

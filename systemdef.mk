@@ -28,11 +28,13 @@ ifeq ($(SYSTEM), Vista)
         LD      = mpicxx
         CFLAGS  += -DBIGBEN
         CFLAGS  += -g -I$$TACC_PROJ_INC
+		CPPFLAGS += -g -I$$TACC_PROJ_INC
         CC += -I$$TACC_GSL_INC
 		CXX += -I$$TACC_GSL_INC
         LDFLAGS += -L$$TACC_GSL_LIB -L$$TACC_PROJ_LIB
         LDFLAGS += -lgsl -lgslcblas -lproj
-        CPPFLAGS += -D_USE_FILE_OFFSET64 -D_FILE_OFFSET_BITS=64 -D_USE_LARGEFILE64
+#		LDFLAGS  += -L$(CUDA_DIR)/lib64 -lcudart
+        CPPFLAGS += -D_USE_FILE_OFFSET64 -D_FILE_OFFSET_BITS=64 -D_USE_LARGEFILE64 -DPROJ
         NVCC    = nvcc -arch=sm_90
         NVCC += -I$$TACC_GSL_INC
 endif
