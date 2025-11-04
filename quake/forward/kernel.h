@@ -42,27 +42,30 @@ int32_t gpu_get_blocksize(gpu_spec_t *gpuSpecs, char* kernel,
 int gpu_copy_constant_symbols(int myID, fmatrix_t (*theK1)[8],
 			      fmatrix_t (*theK2)[8]);
 
-/* Kernels */
-__global__  void kernelStiffnessCalcLocal(int32_t lenum,
-					  gpu_data_t *gpuData,
-					  int32_t   myLinearElementsCount,
-					  int32_t*  myLinearElementsMapperDevice);
+
+
+__global__ void kernelAllInOne(int lenum, int nharbored, gpu_data_t* data, double freq, double deltaT, double deltaTSquared, int typeOfDamping, int printStationAccelerations);
+
+__global__  void kernelAlignTm2Disp(int32_t lenum,
+				    int32_t numcomp,
+				    gpu_data_t *gpuData);
+
+__global__ void kernelStiffnessCalcLocal(int32_t lenum,
+			      gpu_data_t *gpuData,
+			      int32_t   myLinearElementsCount,
+			      int32_t*  myLinearElementsMapperDevice);
 
 __global__  void kernelDampingCalcConv(int32_t lenum,
 				       int32_t numcomp,
 				       gpu_data_t *gpuData,
 				       double rmax);
 
-__global__  void kernelDampingCalcLocal(int32_t lenum,
-					gpu_data_t *gpuData);
+__global__ void kernelDampingCalcLocal(int32_t lenum,
+			    gpu_data_t *gpuData);
 
 __global__  void kernelDispCalc(int32_t nharbored,
 				gpu_data_t* gpuData,
-                                noyesflag_t printAccel);
-
-__global__  void kernelAlignTm2Disp(int32_t lenum,
-				    int32_t numcomp,
-				    gpu_data_t *gpuData);
+				noyesflag_t printAccel);
 
 /* Physics functions used on both host and device */
 #ifdef __cplusplus

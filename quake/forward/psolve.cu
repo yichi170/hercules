@@ -5873,6 +5873,143 @@ static void solver_run_collect_timers(void) {
 /**
  * March forward in time and output the result whenever necessary.
  */
+
+
+void solver_launch_merged_kernel(int step) {
+    // Swap tm1 and tm2 on the device
+    fvector_t* tmp = Global.gpuData.tm1Device;
+    Global.gpuData.tm1Device = Global.gpuData.tm2Device;
+    Global.gpuData.tm2Device = tmp;
+
+    // Reset forces on the device
+    cudaMemsetAsync(Global.gpuData.forceDevice, 0, Global.myMesh->nharbored * sizeof(fvector_t), Global.mySolver->streams[CUDA_STREAM_MAIN]);
+
+    // Launch the merged kernel
+    int blocksize = Global.gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].blocksize;
+    int gridsize = Global.gpu_kernel[CUDA_KERNEL_STIFFNESS_FORCE].gridsize;
+
+    kernelAllInOne<<<gridsize, blocksize, 0, Global.mySolver->streams[CUDA_STREAM_MAIN]>>>(
+        Global.myMesh->lenum,
+        Global.myMesh->nharbored,
+        Global.mySolver->gpuDataDevice,
+        Param.theFreq,
+        Param.theDeltaT,
+        Param.theDeltaTSquared,
+        Param.theTypeOfDamping,
+        Param.printStationAccelerations
+    );
+
+    // Copy forces from device to host
+    cudaMemcpyAsync(Global.mySolver->force, Global.gpuData.forceDevice, Global.myMesh->nharbored * sizeof(fvector_t), cudaMemcpyDeviceToHost, Global.mySolver->streams[CUDA_STREAM_MAIN]);
+
+    // Copy displacements from device to host
+    cudaMemcpyAsync(Global.mySolver->tm1, Global.gpuData.tm1Device, Global.myMesh->nharbored * sizeof(fvector_t), cudaMemcpyDeviceToHost, Global.mySolver->streams[CUDA_STREAM_MAIN]);
+    cudaMemcpyAsync(Global.mySolver->tm2, Global.gpuData.tm2Device, Global.myMesh->nharbored * sizeof(fvector_t), cudaMemcpyDeviceToHost, Global.mySolver->streams[CUDA_STREAM_MAIN]);
+
+    // Synchronize the main stream to make sure all transfers are complete
+    cudaStreamSynchronize(Global.mySolver->streams[CUDA_STREAM_MAIN]);
+}
+
+static void solver_run_gpu() {
+  int32_t step, startingStep;
+
+  solver_run_init_comm(Global.mySolver);
+
+  /* sets new starting step if loading checkpoint */
+  if (Param.theUseCheckPoint == 1) {
+    startingStep = checkpoint_read(
+        Global.myID, Global.myMesh, Param.theCheckPointingDirOut,
+        Global.theGroupSize, Global.mySolver, comm_solver);
+  } else {
+    startingStep = 0;
+  }
+
+  if (Global.myID == 0) {
+    /* print header for monitor file */
+    monitor_print("solver_run() start\nStarting time step = %d\n\n",
+                  startingStep);
+    monitor_print(
+        "Sim = Simulation time (s), Sol = Solver time (s), WC = Wall Clock "
+        "Time (s)\n");
+  }
+
+  MPI_Barrier(comm_solver);
+
+  /* march forward in time */
+  for (step = startingStep; step < Param.theTotalSteps; step++) {
+    fvector_t* tmpvector;
+
+    /* prepare for a new iteration
+     * swap displacement vectors for t(n) and t(n-1) */
+    tmpvector = Global.mySolver->tm2;
+    Global.mySolver->tm2 = Global.mySolver->tm1;
+    Global.mySolver->tm1 = tmpvector;
+
+    Timer_Start("Solver I/O");
+    solver_write_checkpoint(step, startingStep);
+    solver_update_status(step, startingStep);
+    solver_output_planes(Global.mySolver, Global.myID, step);
+    solver_output_stations(step);
+    solver_output_drm_nodes(Global.mySolver, step, Param.theTotalSteps);
+    solver_read_source_forces(step, Param.theDeltaT);
+    solver_read_drm_displacements_v2(step, Param.theDeltaT,
+                                     Param.theTotalSteps);
+    Timer_Stop("Solver I/O");
+
+    Timer_Start("Compute Physics");
+
+    // This will be a call to a function that launches the merged kernel
+    solver_launch_merged_kernel(step);
+
+    // The rest of the physics computation that is not part of the kernel
+    solver_nonlinear_state(Global.mySolver, Global.myMesh, Global.theK1,
+                           Global.theK2, step);
+    solver_compute_force_source(step);
+    solver_compute_effective_drm_force_v2(
+        Global.mySolver, Global.myMesh, Global.theK1, Global.theK2, step,
+        Param.theDeltaT, Param.theTypeOfDamping, Param.theFreq,
+        Param.theDeltaTSquared);
+
+    solver_compute_force_topography(Global.mySolver, Global.myMesh,
+                                    Param.theDeltaTSquared);
+    solver_compute_force_gravity(Global.mySolver, Global.myMesh, step);
+    solver_compute_force_nonlinear(Global.mySolver, Global.myMesh,
+                                   Param.theDeltaTSquared);
+    solver_compute_force_planewaves(Global.myMesh, Global.mySolver,
+                                    Param.theDeltaT, step, Global.theK1,
+                                    Global.theK2);
+
+    Timer_Stop("Compute Physics");
+
+    Timer_Start("Communication");
+    HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
+    solver_send_force_dangling(Global.mySolver);
+    solver_adjust_forces(Global.mySolver);
+    HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
+    solver_send_force_anchored(Global.mySolver);
+    Timer_Stop("Communication");
+
+    Timer_Start("Compute Physics");
+    solver_geostatic_fix(step);
+    solver_load_fixedbase_displacements(Global.mySolver, step);
+    Timer_Stop("Compute Physics");
+
+    Timer_Start("Communication");
+    HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
+    solver_send_displacement_anchored(Global.mySolver);
+    solver_adjust_displacement(Global.mySolver);
+    HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
+    solver_send_displacement_dangling(Global.mySolver);
+    Timer_Stop("Communication");
+
+    solver_loop_hook_bottom(Global.mySolver, Global.myMesh, step);
+  } /* for (step = ....): all steps */
+
+  solver_drm_close();
+  solver_output_wavefield_close();
+  solver_run_collect_timers();
+}
+
 static void solver_run() {
   int32_t step, startingStep;
 
@@ -9774,7 +9911,7 @@ int main(int argc, char** argv) {
   /* Run the solver and output the results */
   MPI_Barrier(comm_solver);
   Timer_Start("Solver");
-  solver_run();
+  solver_run_gpu();
   Timer_Stop("Solver");
   MPI_Barrier(comm_solver);
 

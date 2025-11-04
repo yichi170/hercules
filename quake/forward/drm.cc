@@ -2403,7 +2403,7 @@ void solver_read_drm_displacements_v2( int32_t step, double deltat, int32_t tota
             }
 
             if ( step == 0 ) {
-                for( i=0; i<filesToReadCnt;++i) {
+                for( i = 0; i < filesToReadCnt; ++i ) {
                     off_t   whereToRead;
                     whereToRead = ((off_t)sizeof(int32_t))
                                                 + (off_t)drmFilesToRead[i].nodes_cnt * (off_t)sizeof(double) *(off_t) 3;
@@ -2414,7 +2414,7 @@ void solver_read_drm_displacements_v2( int32_t step, double deltat, int32_t tota
                 }
             }
 
-            for( i=0; i<filesToReadCnt;++i) {
+            for( i = 0; i < filesToReadCnt; ++i ) {
                 off_t   whereToRead;
                 whereToRead = ((off_t)sizeof(int32_t))
                                             +(off_t)drmFilesToRead[i].nodes_cnt * (off_t)sizeof(double) *(off_t) 3
@@ -2426,7 +2426,7 @@ void solver_read_drm_displacements_v2( int32_t step, double deltat, int32_t tota
             }
 
             if ( step == 1 ) {
-                for( i=0; i<filesToReadCnt;++i) {
+                for( i = 0; i < filesToReadCnt; ++i ) {
                     off_t   whereToRead;
                     whereToRead = ((off_t)sizeof(int32_t))
                                                 +(off_t)drmFilesToRead[i].nodes_cnt * (off_t)sizeof(double) *(off_t) 3
