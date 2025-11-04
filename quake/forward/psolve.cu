@@ -5876,6 +5876,9 @@ static void solver_run_collect_timers(void) {
 
 
 void solver_launch_merged_kernel(int step) {
+    Timer_Start("Compute addforces e");
+    Timer_Start("Damping addforce");
+    Timer_Start("Compute new displacement");
     // Swap tm1 and tm2 on the device
     fvector_t* tmp = Global.gpuData.tm1Device;
     Global.gpuData.tm1Device = Global.gpuData.tm2Device;
@@ -5908,6 +5911,9 @@ void solver_launch_merged_kernel(int step) {
 
     // Synchronize the main stream to make sure all transfers are complete
     cudaStreamSynchronize(Global.mySolver->streams[CUDA_STREAM_MAIN]);
+    Timer_Stop("Compute new displacement");
+    Timer_Stop("Damping addforce");
+    Timer_Stop("Compute addforces e");
 }
 
 static void solver_run_gpu() {
