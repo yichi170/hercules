@@ -221,14 +221,20 @@ void kernelStiffnessCalcLocal(int32_t lenum,
     eindex = myLinearElementsMapperDevice[lin_eindex];
     int32_t *lnid = &(gpuData->lnidArrayDevice[eindex]);
 
+    /* Compute b_over_dt for Rayleigh damping transformation */
+    double b_over_dt = gpuData->c3ArrayDevice[eindex] / gpuData->c1ArrayDevice[eindex];
+
     for (i = 0; i < 8; i++) {
       const __restrict__ fvector_t *tm1Disp = gpuData->tm1Device + *lnid;
+      const __restrict__ fvector_t *tm2Disp = gpuData->tm2Device + *lnid;
 
-      localForce[i].f[0] = tm1Disp->f[0];
+      /* Apply Rayleigh damping transformation to consider damping simultaneously
+       * with stiffness force computation (matches CPU version) */
+      localForce[i].f[0] = tm1Disp->f[0] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[0];
       do_contrib = ( fabs(localForce[i].f[0]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
-      localForce[i].f[1] = tm1Disp->f[1];
+      localForce[i].f[1] = tm1Disp->f[1] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[1];
       do_contrib = ( fabs(localForce[i].f[1]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
-      localForce[i].f[2] = tm1Disp->f[2];
+      localForce[i].f[2] = tm1Disp->f[2] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[2];
       do_contrib = ( fabs(localForce[i].f[2]) > UNDERFLOW_CAP_STIFFNESS ) ? 1 : do_contrib;
 
       lnid += lenum;

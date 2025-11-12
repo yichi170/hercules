@@ -4357,7 +4357,14 @@ static void solver_init() {
   }
   if (cudaMalloc((void**)&(Global.gpuData.c2ArrayDevice),
                  Global.myMesh->lenum * sizeof(double)) != cudaSuccess) {
-    fprintf(stderr, "Thread %d: Failed to allocate c1 array memory\n",
+    fprintf(stderr, "Thread %d: Failed to allocate c2 array memory\n",
+            Global.myID);
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+  if (cudaMalloc((void**)&(Global.gpuData.c3ArrayDevice),
+                 Global.myMesh->lenum * sizeof(double)) != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Failed to allocate c3 array memory\n",
             Global.myID);
     MPI_Abort(MPI_COMM_WORLD, ERROR);
     exit(1);
@@ -4495,6 +4502,7 @@ static void solver_init() {
   /* Temporary structure of arrays */
   double* c1Array = (double*)malloc(Global.myMesh->lenum * sizeof(double));
   double* c2Array = (double*)malloc(Global.myMesh->lenum * sizeof(double));
+  double* c3Array = (double*)malloc(Global.myMesh->lenum * sizeof(double));
   int32_t* lnidArray =
       (int32_t*)malloc(Global.myMesh->lenum * 8 * sizeof(int32_t));
 
@@ -4543,6 +4551,7 @@ static void solver_init() {
 
     c1Array[i] = Global.mySolver->eTable[i].c1;
     c2Array[i] = Global.mySolver->eTable[i].c2;
+    c3Array[i] = Global.mySolver->eTable[i].c3;
 
     for (int j = 0; j < 8; j++) {
       lnidArray[j * Global.myMesh->lenum + i] =
@@ -4591,6 +4600,13 @@ static void solver_init() {
                  Global.myMesh->lenum * sizeof(double),
                  cudaMemcpyHostToDevice) != cudaSuccess) {
     fprintf(stderr, "Thread %d: Failed to copy c2 array\n", Global.myID);
+    MPI_Abort(MPI_COMM_WORLD, ERROR);
+    exit(1);
+  }
+  if (cudaMemcpy(Global.gpuData.c3ArrayDevice, c3Array,
+                 Global.myMesh->lenum * sizeof(double),
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    fprintf(stderr, "Thread %d: Failed to copy c3 array\n", Global.myID);
     MPI_Abort(MPI_COMM_WORLD, ERROR);
     exit(1);
   }
@@ -4702,6 +4718,7 @@ static void solver_init() {
 
   free(c1Array);
   free(c2Array);
+  free(c3Array);
   free(lnidArray);
   free(g0_shearArray);
   free(g1_shearArray);
@@ -4988,6 +5005,7 @@ static void solver_delete() {
   cudaFree(Global.gpuData.conv_kappa_2Device);
   cudaFree(Global.gpuData.c1ArrayDevice);
   cudaFree(Global.gpuData.c2ArrayDevice);
+  cudaFree(Global.gpuData.c3ArrayDevice);
   cudaFree(Global.gpuData.lnidArrayDevice);
   cudaFree(Global.gpuData.g0_shearArrayDevice);
   cudaFree(Global.gpuData.g1_shearArrayDevice);
@@ -5908,17 +5926,6 @@ static void solver_run() {
     Global.mySolver->tm2 = Global.mySolver->tm1;
     Global.mySolver->tm1 = tmpvector;
 
-    Timer_Start("GPU Memory Copy");
-    solver_load_disp_gpu(Global.mySolver, Global.myMesh);
-    Timer_Stop("GPU Memory Copy");
-
-    Timer_Start("Compute Physics");
-    solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
-                                   Global.theK2);
-    solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
-                                 Global.theK2);
-    Timer_Stop("Compute Physics");
-
     Timer_Start("Solver I/O");
     solver_write_checkpoint(step, startingStep);
     solver_update_status(step, startingStep);
@@ -5934,11 +5941,10 @@ static void solver_run() {
     Timer_Stop("Solver I/O");
 
     Timer_Start("GPU Memory Copy");
-    solver_unload_forces_gpu(Global.mySolver, Global.myMesh);
+    solver_load_disp_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Compute Physics");
-    solver_wait_physics_gpu(Global.mySolver, Global.myMesh);
     solver_nonlinear_state(Global.mySolver, Global.myMesh, Global.theK1,
                            Global.theK2, step);
     solver_compute_force_source(step);
@@ -5951,10 +5957,21 @@ static void solver_run() {
 
     solver_compute_force_topography(Global.mySolver, Global.myMesh,
                                     Param.theDeltaTSquared);
-    /* solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1, */
-    /*                                Global.theK2); */
-    /* solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1, */
-    /*                              Global.theK2); */
+    solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
+                                   Global.theK2);
+    solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
+                                 Global.theK2);
+    
+    /* Unload forces from GPU if they were computed on GPU */
+    Timer_Start("GPU Memory Copy");
+    solver_unload_forces_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("GPU Memory Copy");
+    
+    Timer_Start("Compute Physics");
+    solver_wait_physics_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("Compute Physics");
+    
+    Timer_Start("Compute Physics");
     solver_compute_force_gravity(Global.mySolver, Global.myMesh, step);
     solver_compute_force_nonlinear(Global.mySolver, Global.myMesh,
                                    Param.theDeltaTSquared);
