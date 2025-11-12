@@ -5324,12 +5324,90 @@ static void solver_output_planes(mysolver_t* solver, int my_id, int step) {
   }
 }
 
+/* Debug function to check simulation state */
+static void solver_debug_check_state(int32_t step, const char* location) {
+  if (step % 100 == 0 || step < 10) {  /* Check every 100 steps or first 10 steps */
+    int32_t nindex;
+    double max_force = 0.0, max_disp = 0.0, sum_force = 0.0, sum_disp = 0.0;
+    int32_t non_zero_forces = 0, non_zero_disps = 0;
+    int32_t sample_nodes[5] = {0, Global.myMesh->nharbored/4, Global.myMesh->nharbored/2, 
+                               3*Global.myMesh->nharbored/4, Global.myMesh->nharbored-1};
+    
+    /* Check forces */
+    for (nindex = 0; nindex < Global.myMesh->nharbored; nindex++) {
+      double f_mag = sqrt(Global.mySolver->force[nindex].f[0]*Global.mySolver->force[nindex].f[0] +
+                         Global.mySolver->force[nindex].f[1]*Global.mySolver->force[nindex].f[1] +
+                         Global.mySolver->force[nindex].f[2]*Global.mySolver->force[nindex].f[2]);
+      if (f_mag > 1e-20) non_zero_forces++;
+      if (f_mag > max_force) max_force = f_mag;
+      sum_force += f_mag;
+    }
+    
+    /* Check displacements */
+    for (nindex = 0; nindex < Global.myMesh->nharbored; nindex++) {
+      double d_mag = sqrt(Global.mySolver->tm1[nindex].f[0]*Global.mySolver->tm1[nindex].f[0] +
+                          Global.mySolver->tm1[nindex].f[1]*Global.mySolver->tm1[nindex].f[1] +
+                          Global.mySolver->tm1[nindex].f[2]*Global.mySolver->tm1[nindex].f[2]);
+      if (d_mag > 1e-20) non_zero_disps++;
+      if (d_mag > max_disp) max_disp = d_mag;
+      sum_disp += d_mag;
+    }
+    
+    if (Global.myID == 0) {
+      fprintf(stderr, "[DEBUG step=%d @ %s] Forces: max=%.3e, avg=%.3e, non_zero=%d/%d\n",
+              step, location, max_force, sum_force/Global.myMesh->nharbored, 
+              non_zero_forces, Global.myMesh->nharbored);
+      fprintf(stderr, "[DEBUG step=%d @ %s] Disps: max=%.3e, avg=%.3e, non_zero=%d/%d\n",
+              step, location, max_disp, sum_disp/Global.myMesh->nharbored,
+              non_zero_disps, Global.myMesh->nharbored);
+      
+      /* Print sample node values */
+      for (int i = 0; i < 5; i++) {
+        if (sample_nodes[i] < Global.myMesh->nharbored) {
+          fprintf(stderr, "[DEBUG step=%d @ %s] Node[%d]: force=(%.3e,%.3e,%.3e) disp=(%.3e,%.3e,%.3e)\n",
+                  step, location, sample_nodes[i],
+                  Global.mySolver->force[sample_nodes[i]].f[0],
+                  Global.mySolver->force[sample_nodes[i]].f[1],
+                  Global.mySolver->force[sample_nodes[i]].f[2],
+                  Global.mySolver->tm1[sample_nodes[i]].f[0],
+                  Global.mySolver->tm1[sample_nodes[i]].f[1],
+                  Global.mySolver->tm1[sample_nodes[i]].f[2]);
+        }
+      }
+      fflush(stderr);
+    }
+  }
+}
+
 static void solver_output_stations(int step) {
   if (Param.theNumberOfStations != 0) {
     if (step % Param.theStationsPrintRate == 0) {
       Timer_Start("Print Stations");
       interpolate_station_displacements(step);
       Timer_Stop("Print Stations");
+      
+      /* Debug: Check station values */
+      if (step % 100 == 0 || step < 10) {
+        if (Param.myNumberOfStations > 0 && Global.myID == 0) {
+          int32_t iStation = 0;
+          int32_t nodesToInterpolate[8];
+          for (int iPhi = 0; iPhi < 8; iPhi++) {
+            nodesToInterpolate[iPhi] = Param.myStations[iStation].nodestointerpolate[iPhi];
+          }
+          fprintf(stderr, "[DEBUG step=%d] Station[0] nodes: ", step);
+          for (int iPhi = 0; iPhi < 8; iPhi++) {
+            if (nodesToInterpolate[iPhi] < Global.myMesh->nharbored) {
+              fprintf(stderr, "node[%d]=(%.3e,%.3e,%.3e) ",
+                      nodesToInterpolate[iPhi],
+                      Global.mySolver->tm1[nodesToInterpolate[iPhi]].f[0],
+                      Global.mySolver->tm1[nodesToInterpolate[iPhi]].f[1],
+                      Global.mySolver->tm1[nodesToInterpolate[iPhi]].f[2]);
+            }
+          }
+          fprintf(stderr, "\n");
+          fflush(stderr);
+        }
+      }
     }
   }
 }
@@ -5948,6 +6026,7 @@ static void solver_run() {
     solver_nonlinear_state(Global.mySolver, Global.myMesh, Global.theK1,
                            Global.theK2, step);
     solver_compute_force_source(step);
+    solver_debug_check_state(step, "after_force_source");
     // solver_compute_effective_drm_force( Global.mySolver,
     // Global.myMesh,Global.theK1, Global.theK2, step, Param.theDeltaT );
     solver_compute_effective_drm_force_v2(
@@ -5980,6 +6059,8 @@ static void solver_run() {
                                     Global.theK2);
 
     Timer_Stop("Compute Physics");
+    
+    solver_debug_check_state(step, "after_all_forces");
 
     Timer_Start("Communication");
     HU_COND_GLOBAL_BARRIER(Param.theTimingBarriersFlag);
@@ -5998,6 +6079,8 @@ static void solver_run() {
     solver_compute_displacement_gpu(Global.myID, Global.mySolver,
                                     Global.myMesh);
     Timer_Stop("Compute Physics");
+    
+    solver_debug_check_state(step, "after_displacement");
 
     Timer_Start("GPU Memory Copy");
     solver_unload_disp_gpu(Global.mySolver, Global.myMesh);
