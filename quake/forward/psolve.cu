@@ -5909,6 +5909,33 @@ static void solver_run_collect_timers(void) {
   Timer_Reduce("Communication", (TimerKind)(MAX | MIN | AVERAGE), comm_solver);
 }
 
+static void solver_compute_force_stiffness_gpu(mysolver_t* solver, mesh_t* mesh) {
+    compute_addforce_effective_gpu(Global.myID, mesh, solver);
+}
+
+static void solver_compute_force_damping_gpu(mysolver_t* solver, mesh_t* mesh) {
+    Timer_Start("Damping addforce");
+    if (Param.theTypeOfDamping >= BKT) {
+        int32_t numcomp = mesh->lenum * 8;
+        double rmax = 2. * M_PI * Param.theFreq * Param.theDeltaT;
+
+        int blocksize = solver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].blocksize;
+        int gridsize = solver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].gridsize;
+        int sharedmem = solver->gpu_kernel[CUDA_KERNEL_DAMPING_CONV].sharedmem;
+
+        kernelDampingCalcConv<<<gridsize, blocksize, sharedmem, solver->streams[CUDA_STREAM_MAIN]>>>(
+            mesh->lenum, numcomp, solver->gpuDataDevice, rmax);
+
+        blocksize = solver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].blocksize;
+        gridsize = solver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].gridsize;
+        sharedmem = solver->gpu_kernel[CUDA_KERNEL_DAMPING_FORCE].sharedmem;
+
+        kernelDampingCalcLocal<<<gridsize, blocksize, sharedmem, solver->streams[CUDA_STREAM_MAIN]>>>(
+            mesh->lenum, solver->gpuDataDevice);
+    }
+    Timer_Stop("Damping addforce");
+}
+
 /**
  * March forward in time and output the result whenever necessary.
  */
@@ -5952,10 +5979,12 @@ static void solver_run() {
     Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Compute Physics");
-    solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
-                                   Global.theK2);
-    solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
-                                 Global.theK2);
+    /* solver_compute_force_stiffness(Global.mySolver, Global.myMesh, Global.theK1,
+                                   Global.theK2); */
+    /* solver_compute_force_damping(Global.mySolver, Global.myMesh, Global.theK1,
+                                 Global.theK2); */
+    solver_compute_force_stiffness_gpu(Global.mySolver, Global.myMesh);
+    solver_compute_force_damping_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("Compute Physics");
 
     Timer_Start("Solver I/O");
