@@ -6063,6 +6063,15 @@ static void solver_run() {
     Timer_Stop("Compute Physics");
 
     Timer_Start("GPU Memory Copy");
+    /* Sync modified CPU tm2 back to GPU before swapping */
+    cudaMemcpyAsync(Global.mySolver->gpuData->tm2Device, Global.mySolver->tm2,
+                    Global.myMesh->nharbored * sizeof(fvector_t),
+                    cudaMemcpyHostToDevice,
+                    Global.mySolver->streams[CUDA_STREAM_MAIN]);
+    Global.mySolver->gpu_spec->numbytespci +=
+        Global.myMesh->nharbored * sizeof(fvector_t);
+    /* Ensure the copy completes before swapping */
+    cudaStreamSynchronize(Global.mySolver->streams[CUDA_STREAM_MAIN]);
     solver_reset_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("GPU Memory Copy");
 
