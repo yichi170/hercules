@@ -221,14 +221,19 @@ void kernelStiffnessCalcLocal(int32_t lenum,
     eindex = myLinearElementsMapperDevice[lin_eindex];
     int32_t *lnid = &(gpuData->lnidArrayDevice[eindex]);
 
+    double c1 = gpuData->c1ArrayDevice[eindex];
+    double c3 = gpuData->c3ArrayDevice[eindex];
+    double b_over_dt = c3 / c1;
+
     for (i = 0; i < 8; i++) {
       const __restrict__ fvector_t *tm1Disp = gpuData->tm1Device + *lnid;
+      const __restrict__ fvector_t *tm2Disp = gpuData->tm2Device + *lnid;
 
-      localForce[i].f[0] = tm1Disp->f[0];
+      localForce[i].f[0] = tm1Disp->f[0] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[0];
       do_contrib = (fabs( localForce[i].f[0] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
-      localForce[i].f[1] = tm1Disp->f[1];
+      localForce[i].f[1] = tm1Disp->f[1] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[1];
       do_contrib = (fabs( localForce[i].f[1] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
-      localForce[i].f[2] = tm1Disp->f[2];
+      localForce[i].f[2] = tm1Disp->f[2] * (1.0 + b_over_dt) - b_over_dt * tm2Disp->f[2];
       do_contrib = (fabs( localForce[i].f[2] ) > UNDERFLOW_CAP_STIFFNESS) ? 1 : do_contrib;
 
       lnid += lenum;
