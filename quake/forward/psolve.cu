@@ -5316,6 +5316,16 @@ static void solver_output_stations(int step) {
   }
 }
 
+static void solver_wait_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
+  Timer_Start("Compute new displacement");
+
+  /* Uncomment for timing tests */
+  cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
+
+  Timer_Stop("Compute new displacement");
+  return;
+}
+
 static void solver_reset_gpu(mysolver_t* solver, mesh_t* mesh) {
   fvector_t* tmp;
 
@@ -5602,6 +5612,12 @@ static void solver_load_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
   solver->gpu_spec->numbytespci +=
       solver->gpuData->nharbored * sizeof(fvector_t);
 
+  cudaMemcpyAsync(solver->gpuData->tm2Device, solver->tm2,
+                  solver->gpuData->nharbored * sizeof(fvector_t),
+                  cudaMemcpyHostToDevice, solver->streams[CUDA_STREAM_MAIN]);
+  solver->gpu_spec->numbytespci +=
+      solver->gpuData->nharbored * sizeof(fvector_t);
+
   /* Uncomment for timing tests */
   // cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
 
@@ -5649,6 +5665,13 @@ static void solver_unload_disp_gpu(mysolver_t* solver, mesh_t* mesh) {
                   solver->streams[CUDA_STREAM_MAIN]);
   solver->gpu_spec->numbytespci += mesh->nharbored * sizeof(fvector_t);
 
+  if (Param.printStationAccelerations == YES) {
+    cudaMemcpyAsync(solver->tm3, solver->gpuData->tm3Device,
+                    mesh->nharbored * sizeof(fvector_t), cudaMemcpyDeviceToHost,
+                    solver->streams[CUDA_STREAM_MAIN]);
+    solver->gpu_spec->numbytespci += mesh->nharbored * sizeof(fvector_t);
+  }
+
   /* Uncomment for timing tests */
   // cudaStreamSynchronize(solver->streams[CUDA_STREAM_MAIN]);
 
@@ -5672,6 +5695,14 @@ static void solver_compute_displacement_gpu(int32_t myID, mysolver_t* solver,
   kernelDispCalc<<<gridsize, blocksize, sharedmem,
                    solver->streams[CUDA_STREAM_MAIN]>>>(
       mesh->nharbored, solver->gpuDataDevice, Param.printStationAccelerations);
+
+  /* Zero out forces on GPU */
+  cudaMemsetAsync(solver->gpuData->forceDevice, 0,
+                  mesh->nharbored * sizeof(fvector_t),
+                  solver->streams[CUDA_STREAM_MAIN]);
+
+  /* Zero out forces on CPU (to match CPU implementation behavior) */
+  memset(solver->force, 0, sizeof(fvector_t) * mesh->nharbored);
 
   cudaError_t cerror = cudaGetLastError();
   if (cerror != cudaSuccess) {
@@ -5913,21 +5944,27 @@ static void solver_run() {
     solver_send_force_anchored(Global.mySolver);
     Timer_Stop("Communication");
 
-    /* Timer_Start("GPU Memory Copy"); */
-    /* solver_load_forces_gpu(Global.mySolver, Global.myMesh); */
-    /* Timer_Stop("GPU Memory Copy"); */
+    Timer_Start("GPU Memory Copy");
+    solver_load_forces_gpu(Global.mySolver, Global.myMesh);
+    Timer_Stop("GPU Memory Copy");
 
     Timer_Start("Compute Physics");
     /* solver_compute_displacement(Global.mySolver, Global.myMesh); */
     solver_compute_displacement_gpu(Global.myID, Global.mySolver,
                                     Global.myMesh);
-    solver_geostatic_fix(step);
-    solver_load_fixedbase_displacements(Global.mySolver, step);
+    // solver_geostatic_fix(step);
+    // solver_load_fixedbase_displacements(Global.mySolver, step);
     Timer_Stop("Compute Physics");
 
     Timer_Start("GPU Memory Copy");
     solver_unload_disp_gpu(Global.mySolver, Global.myMesh);
     Timer_Stop("GPU Memory Copy");
+
+    Timer_Start("Compute Physics");
+    solver_wait_disp_gpu(Global.mySolver, Global.myMesh);
+    solver_geostatic_fix(step);
+    solver_load_fixedbase_displacements(Global.mySolver, step);
+    Timer_Stop("Compute Physics");
 
     Timer_Start("GPU Memory Copy");
     solver_reset_gpu(Global.mySolver, Global.myMesh);

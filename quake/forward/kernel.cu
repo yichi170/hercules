@@ -600,6 +600,10 @@ __global__  void kernelDispCalc(int32_t nharbored,
       *t1 = *(((solver_float *)(gpuData->tm1Device + startnode)) + offset);
       *t2 = *(((solver_float *)(gpuData->tm2Device + startnode)) + offset);
       *f = *(((solver_float *)(gpuData->forceDevice + startnode)) + offset);
+
+      if (printAccel == YES) {
+        *(((solver_float *)(gpuData->tm3Device + startnode)) + offset) = *t2;
+      }
       
       offset += stride;
       t1 += stride;
