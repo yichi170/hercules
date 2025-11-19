@@ -578,81 +578,78 @@ __global__  void kernelDispCalc(int32_t nharbored,
 
     /* Shared memory for coalesced reads */
     extern __shared__ solver_float disp[];
-    solver_float *t1, *t2, *f;
-    int32_t i, startnode, stride, offset;
+    
+    /* Pointers to Shared Memory (Planar Layout) */
+    solver_float *tm1X = &disp[threadIdx.x];
+    solver_float *tm1Y = tm1X + blockDim.x;
+    solver_float *tm1Z = tm1Y + blockDim.x;
 
-    fvector_t       *tm1Disp, *tm2Disp, *nodalForce;
+    solver_float *tm2X = tm1Z + blockDim.x;
+    solver_float *tm2Y = tm2X + blockDim.x;
+    solver_float *tm2Z = tm2Y + blockDim.x;
+
+    solver_float *forceX = tm2Z + blockDim.x;
+    solver_float *forceY = forceX + blockDim.x;
+    solver_float *forceZ = forceY + blockDim.x;
+
     solver_float     mass2_minusaM, mass_minusaM, mass_simple;
 
-    startnode = blockIdx.x * blockDim.x;
-
-    /* Since number of nodes may not be exactly divisible by block size,
-       check that we are not off the end of the node array */
-    if ((nindex >= gpuData->nharbored) || (startnode >= gpuData->nharbored)) {
+    /* Check bounds */
+    if (nindex >= gpuData->nharbored) {
       return;
     }
 
-    stride = (startnode + blockDim.x >= gpuData->nharbored) ? (gpuData->nharbored - startnode) : blockDim.x;
+    /* Pointers to Global Memory (AoS Layout) */
+    fvector_t *g_tm1 = gpuData->tm1Device + nindex;
+    fvector_t *g_tm2 = gpuData->tm2Device + nindex;
+    fvector_t *g_force = gpuData->forceDevice + nindex;
+    fvector_t *g_tm3 = gpuData->tm3Device + nindex;
 
-    offset = threadIdx.x;
-    //t1 = &disp[threadIdx.x];
-    //t2 = &disp[3*blockDim.x + threadIdx.x];
-    //f = &disp[6*blockDim.x + threadIdx.x];
-    t1 = &disp[threadIdx.x];
-    t2 = t1 + 3*blockDim.x;
-    f = t2 + 3*blockDim.x;;
-    for (i = 0; i < 3; i++) {
-      *t1 = *(((solver_float *)(gpuData->tm1Device + startnode)) + offset);
-      *t2 = *(((solver_float *)(gpuData->tm2Device + startnode)) + offset);
-      *f = *(((solver_float *)(gpuData->forceDevice + startnode)) + offset);
+    /* Load from Global (AoS) to Shared (Planar) */
+    *tm1X = g_tm1->f[0];
+    *tm1Y = g_tm1->f[1];
+    *tm1Z = g_tm1->f[2];
 
-      if (printAccel == YES) {
-        *(((solver_float *)(gpuData->tm3Device + startnode)) + offset) = *t2;
-      }
-      
-      offset += stride;
-      t1 += stride;
-      t2 += stride;
-      f += stride;
+    *tm2X = g_tm2->f[0];
+    *tm2Y = g_tm2->f[1];
+    *tm2Z = g_tm2->f[2];
+
+    *forceX = g_force->f[0];
+    *forceY = g_force->f[1];
+    *forceZ = g_force->f[2];
+
+    if (printAccel == YES) {
+        g_tm3->f[0] = *tm2X;
+        g_tm3->f[1] = *tm2Y;
+        g_tm3->f[2] = *tm2Z;
     }
 
     __syncthreads();
 
-    //tm1Disp = (fvector_t *)&disp[threadIdx.x*3];
-    //tm2Disp = (fvector_t *)&disp[3*blockDim.x + threadIdx.x*3];
-    //nodalForce = (fvector_t *)&disp[6*blockDim.x + threadIdx.x*3];
-    tm1Disp = (fvector_t *)&disp[threadIdx.x*3];
-    tm2Disp = tm1Disp + blockDim.x;
-    nodalForce = tm2Disp + blockDim.x;
     mass_simple = gpuData->mass_simpleArrayDevice[nindex];
 
     /* total nodal forces */
     mass2_minusaM = gpuData->mass2_minusaMArrayDevice[0][nindex];
     mass_minusaM = gpuData->mass_minusaMArrayDevice[0][nindex];
-    tm2Disp->f[0] = (nodalForce->f[0] + mass2_minusaM * tm1Disp->f[0]
-		      - mass_minusaM  * tm2Disp->f[0]) / mass_simple;
+    *tm2X = (*forceX + mass2_minusaM * *tm1X
+		      - mass_minusaM  * *tm2X) / mass_simple;
 
     mass2_minusaM = gpuData->mass2_minusaMArrayDevice[1][nindex];
     mass_minusaM = gpuData->mass_minusaMArrayDevice[1][nindex];
-    tm2Disp->f[1] = (nodalForce->f[1] + mass2_minusaM * tm1Disp->f[1]
-		      - mass_minusaM  * tm2Disp->f[1]) / mass_simple;
+    *tm2Y = (*forceY + mass2_minusaM * *tm1Y
+		      - mass_minusaM  * *tm2Y) / mass_simple;
 
     mass2_minusaM = gpuData->mass2_minusaMArrayDevice[2][nindex];
     mass_minusaM = gpuData->mass_minusaMArrayDevice[2][nindex];
-    tm2Disp->f[2] = (nodalForce->f[2] + mass2_minusaM * tm1Disp->f[2]
-		      - mass_minusaM  * tm2Disp->f[2]) / mass_simple;
+    *tm2Z = (*forceZ + mass2_minusaM * *tm1Z
+		      - mass_minusaM  * *tm2Z) / mass_simple;
 
     __syncthreads();
 
-    /* overwrite tm2 */
-    offset = threadIdx.x;
-    t2 = &disp[3*blockDim.x + threadIdx.x];
-    for (i = 0; i < 3; i++) {
-      *(((solver_float *)(gpuData->tm2Device + startnode)) + offset) = *t2;
-
-      offset += stride;
-      t2 += stride;
-    }
+    /* Store tm2 back to Global (AoS) */
+    g_tm2->f[0] = *tm2X;
+    g_tm2->f[1] = *tm2Y;
+    g_tm2->f[2] = *tm2Z;
 
     return;
 }
